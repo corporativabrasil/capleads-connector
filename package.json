@@ -1,0 +1,17 @@
+{
+  "name": "capleads-whatsapp-connector",
+  "version": "1.0.0",
+  "description": "WhatsApp Connector Baileys para CapLeads",
+  "main": "index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.21",
+    "cors": "^2.8.5",
+    "express": "^4.22.1",
+    "node-fetch": "^3.3.2",
+    "qrcode": "^1.5.4"
+  }
+}
