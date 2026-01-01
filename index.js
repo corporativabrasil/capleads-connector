@@ -10,14 +10,24 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// =====================================================
+// 🌍 ENV
+// =====================================================
+const PORT = process.env.PORT || 3005;
+const BACKEND_URL = process.env.BACKEND_URL; // ex: https://www.capleads.com.br
+
+// =====================================================
+// 🔧 ESTADO GLOBAL
+// =====================================================
 let sock;
 let conectado = false;
+let ultimoQR = null;
 
-// =====================================
-// 🔌 INICIAR WHATSAPP (LOCAL / VPS)
-// =====================================
+// =====================================================
+// 🔌 INICIAR WHATSAPP
+// =====================================================
 async function iniciarWhatsApp() {
-  console.log("🚀 Iniciando WhatsApp Connector (LOCAL)...");
+  console.log("🚀 Iniciando WhatsApp Connector...");
 
   const { state, saveCreds } =
     await useMultiFileAuthState("./auth_info");
@@ -25,14 +35,20 @@ async function iniciarWhatsApp() {
   sock = makeWASocket({
     auth: state,
     browser: ["CapLeads", "Chrome", "1.0"],
-    printQRInTerminal: true
+    printQRInTerminal: false
   });
 
   sock.ev.on("creds.update", saveCreds);
 
-  sock.ev.on("connection.update", ({ connection, lastDisconnect }) => {
+  sock.ev.on("connection.update", ({ connection, qr, lastDisconnect }) => {
+    if (qr) {
+      ultimoQR = qr;
+      console.log("📲 Novo QR Code gerado");
+    }
+
     if (connection === "open") {
       conectado = true;
+      ultimoQR = null;
       console.log("✅ WhatsApp conectado com sucesso");
     }
 
@@ -49,9 +65,9 @@ async function iniciarWhatsApp() {
     }
   });
 
-  // =====================================
-  // 📩 RECEBER MENSAGENS → CAPLEADS
-  // =====================================
+  // =====================================================
+  // 📩 RECEBER MENSAGENS → BACKEND CAPLEADS
+  // =====================================================
   sock.ev.on("messages.upsert", async ({ messages }) => {
     const msg = messages?.[0];
     if (!msg?.message || msg.key.fromMe) return;
@@ -65,42 +81,87 @@ async function iniciarWhatsApp() {
 
     console.log("📩", numero, texto);
 
-    await fetch("https://SEU-RAILWAY.app/whatsapp/receive", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ numero, mensagem: texto })
-    });
+    if (!BACKEND_URL) return;
+
+    try {
+      await fetch(`${BACKEND_URL}/whatsapp/receive`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          numero,
+          mensagem: texto,
+          origem: "cliente"
+        })
+      });
+    } catch (e) {
+      console.error("❌ Erro ao enviar mensagem para o backend:", e.message);
+    }
   });
 }
 
 iniciarWhatsApp();
 
-// =====================================
+// =====================================================
 // 📡 STATUS
-// =====================================
+// =====================================================
 app.get("/status", (req, res) => {
   res.json({ connected: conectado });
 });
 
-// =====================================
-// ✉️ ENVIAR MENSAGEM (CAPLEADS → WHATSAPP)
-// =====================================
-app.post("/send-message", async (req, res) => {
+// =====================================================
+// 📷 QR CODE
+// =====================================================
+app.get("/qr", (req, res) => {
+  if (!ultimoQR) {
+    return res.status(404).json({ error: "QR indisponível" });
+  }
+
+  res.json({
+    qr: `https://api.qrserver.com/v1/create-qr-code/?size=300x300&data=${encodeURIComponent(ultimoQR)}`
+  });
+});
+
+// =====================================================
+// ✉️ ENVIAR MENSAGEM (BACKEND → WHATSAPP)
+// =====================================================
+app.post("/send", async (req, res) => {
   const { numero, mensagem } = req.body;
 
   if (!conectado) {
-    return res.status(400).json({ erro: "WhatsApp offline" });
+    return res.status(400).json({ error: "WhatsApp offline" });
   }
 
-  await sock.sendMessage(
-    `${numero}@s.whatsapp.net`,
-    { text: mensagem }
-  );
+  try {
+    await sock.sendMessage(
+      `${numero}@s.whatsapp.net`,
+      { text: mensagem }
+    );
 
-  res.json({ ok: true });
+    res.json({ status: "ok" });
+
+  } catch (e) {
+    console.error("❌ Erro ao enviar mensagem:", e.message);
+    res.status(500).json({ error: "Falha ao enviar mensagem" });
+  }
 });
 
-app.listen(3005, () =>
-  console.log("🚀 Conector rodando em http://localhost:3005")
-);
+// =====================================================
+// 🚀 START
+// =====================================================
+app.listen(PORT, () => {
+  console.log(`🚀 Conector rodando na porta ${PORT}`);
+});
 
+
+// =====================================
+// 🏠 ROOT / HEALTH CHECK
+// =====================================
+app.get("/", (req, res) => {
+  res.json({
+    service: "CapLeads WhatsApp Connector",
+    status: "online",
+    connected: conectado,
+    has_qr: !!ultimoQR,
+    uptime: process.uptime()
+  });
+});
