@@ -1,13 +1,15 @@
 {
-  "name": "capleads-whatsapp",
+  "name": "capleads-connector",
   "version": "1.0.0",
-  "main": "server.js",
   "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.5",
-    "express": "^4.18.2",
-    "qrcode": "^1.5.4",
-    "node-fetch": "^3.3.2"
+    "express": "^4.19.2",
+    "node-fetch": "^3.3.2",
+    "qrcode": "^1.5.4"
   }
 }
-
