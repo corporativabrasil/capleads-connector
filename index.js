@@ -237,8 +237,10 @@ sock.ev.on("presence.update", async (data) => {
          */
         try {
 
-            await fetch(
-                "https://www.capleads.com.br/whatsapp/receive",
+        console.log("Enviando webhook para CapLeads", numero, texto)
+        
+        await fetch(
+            "https://www.capleads.com.br/whatsapp/receive",
                 {
                     method: "POST",
                     headers: {
@@ -378,6 +380,7 @@ app.listen(PORT, ()=>{
     console.log("🚀 Connector WhatsApp rodando na porta", PORT)
 
 })
+
 
 
 
