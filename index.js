@@ -75,104 +75,107 @@ function extrairTexto(msg){
     )
 }
 
+   
+    /*
+    ==========================================
+    CRIAR SESSÃO WHATSAPP
+    ==========================================
+    */
+    
+    async function iniciarSessao(empresa_id){
+    
+        /*
+        ==========================================
+        EVITA DUPLICAR SESSÃO
+        ==========================================
+        */
+    
+        if (sessoes[empresa_id] && sessoes[empresa_id].sock) {
+            console.log("Sessão já existe:", empresa_id)
+            return
+        }
+    
+        console.log("Iniciando sessão empresa", empresa_id)
+    
+        /*
+        ==========================================
+        GARANTE PASTA DATA
+        ==========================================
+        */
+    
+        const base = "./data"
+    
+        if (!fs.existsSync(base)) {
+            fs.mkdirSync(base, { recursive: true })
+            console.log("📁 pasta data criada")
+        }
+    
+        /*
+        ==========================================
+        PASTA DA SESSÃO
+        ==========================================
+        */
+    
+        const pasta = base + "/session_" + empresa_id
+    
+        /*
+        ==========================================
+        AUTH STATE
+        ==========================================
+        */
+    
+        const { state, saveCreds } =
+            await useMultiFileAuthState(pasta)
+    
+        /*
+        ==========================================
+        VERSÃO BAILEYS
+        ==========================================
+        */
+    
+        const { version } =
+            await fetchLatestBaileysVersion()
+    
+        /*
+        ==========================================
+        CRIAR SOCKET
+        ==========================================
+        */
+    
+        const sock = makeWASocket({
+            auth: state,
+            version,
+            browser: ["CapLeads", "Chrome", "1.0"],
+    
+            markOnlineOnConnect: false,
+            syncFullHistory: false,
+    
+            connectTimeoutMs: 60000,
+            defaultQueryTimeoutMs: 60000
+        })
+    
+        /*
+        ==========================================
+        SALVA SESSÃO NA MEMÓRIA
+        ==========================================
+        */
+    
+        sessoes[empresa_id] = {
+            sock,
+            qr: null,
+            conectado: false
+        }
+    
+        /*
+        ==========================================
+        SALVAR CREDENCIAIS
+        ==========================================
+        */
+    
+        sock.ev.on("creds.update", saveCreds)
+    
+        console.log("Socket criado empresa", empresa_id)
 
-    /*
-    /*
-    ==========================================
-    INICIAR SESSÃO WHATSAPP
-    ==========================================
-    */
-    
-    if (sessoes[empresa_id] && sessoes[empresa_id].sock) {
-        console.log("Sessão já existe:", empresa_id)
-        return
-    }
-    
-    console.log("Iniciando sessão empresa", empresa_id)
-    
-    /*
-    ==========================================
-    GARANTE PASTA DATA
-    ==========================================
-    */
-    
-    const base = "./data"
-    
-    if (!fs.existsSync(base)) {
-        fs.mkdirSync(base, { recursive: true })
-        console.log("📁 pasta data criada")
-    }
-    
-    /*
-    ==========================================
-    PASTA DA SESSÃO
-    ==========================================
-    */
-    
-    const pasta = base + "/session_" + empresa_id
-    
-    /*
-    ==========================================
-    AUTH STATE
-    ==========================================
-    */
-    
-    const { state, saveCreds } =
-        await useMultiFileAuthState(pasta)
-    
-    /*
-    ==========================================
-    VERSÃO BAILEYS
-    ==========================================
-    */
-    
-    const { version } =
-        await fetchLatestBaileysVersion()
-    
-    /*
-    ==========================================
-    CRIAR SOCKET
-    ==========================================
-    */
-    
-    const sock = makeWASocket({
-        auth: state,
-        version,
-        browser: ["CapLeads", "Chrome", "1.0"],
-    
-        // melhora estabilidade
-        markOnlineOnConnect: false,
-        syncFullHistory: false,
-    
-        // timeouts importantes
-        connectTimeoutMs: 60000,
-        defaultQueryTimeoutMs: 60000,
-    
-        // evita alguns disconnects
-        emitOwnEvents: false
-    })
-    
-    /*
-    ==========================================
-    SALVA SESSÃO NA MEMÓRIA
-    ==========================================
-    */
-    
-    sessoes[empresa_id] = {
-        sock,
-        qr: null,
-        conectado: false
-    }
-    
-    /*
-    ==========================================
-    SALVAR CREDENCIAIS
-    ==========================================
-    */
-    
-    sock.ev.on("creds.update", saveCreds)
-    
-    console.log("Socket criado empresa", empresa_id)
 
 
         /*
@@ -695,6 +698,7 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
 
