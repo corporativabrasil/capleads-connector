@@ -217,7 +217,7 @@ async function iniciarSessao(empresa_id){
 
     sock.ev.on("messages.upsert", async ({messages,type})=>{
 
-        if(type!=="notify" && type!=="append") return
+        if(type!=="notify") return
 
         const msg = messages?.[0]
 
@@ -505,6 +505,8 @@ AUTO RECONECTAR SESSÕES AO INICIAR
 
 function restaurarSessoes(){
 
+    garantirPastaData()
+
     const pasta = "./data"
 
     if(!fs.existsSync(pasta)) return
@@ -548,3 +550,4 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
