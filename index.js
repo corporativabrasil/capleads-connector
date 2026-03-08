@@ -317,7 +317,44 @@ app.post("/connect", async (req,res)=>{
 
 })
 
+/*
+==========================================
+CONNECT VIA GET (PARA TESTE NO NAVEGADOR)
+==========================================
+*/
 
+app.get("/connect", async (req,res)=>{
+
+    const empresa_id = req.query.empresa_id
+
+    if(!empresa_id){
+        return res.json({
+            erro:"empresa_id obrigatório"
+        })
+    }
+
+    try{
+
+        if(!sessoes[empresa_id]){
+            await iniciarSessao(empresa_id)
+        }
+
+        res.json({
+            status:"iniciando sessão",
+            empresa_id
+        })
+
+    }catch(e){
+
+        console.log("Erro iniciar sessão:",e)
+
+        res.json({
+            erro:"erro iniciar sessão"
+        })
+
+    }
+
+})
 
 /*
 ==========================================
@@ -554,5 +591,6 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
