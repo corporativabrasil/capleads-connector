@@ -13,40 +13,40 @@ import makeWASocket, {
 const app = express()
 app.use(express.json())
 
-let sock
-let qrCode = null
-let conectado = false
+/*
+==========================================
+ARMAZENA SESSÕES POR EMPRESA
+==========================================
+*/
 
-// controle anti duplicação
+const sessoes = {}
+
 const mensagensProcessadas = new Set()
 
+/*
+==========================================
+EXTRAIR NUMERO WHATSAPP
+==========================================
+*/
 
-/**
- * ==========================================
- * EXTRAI NÚMERO DO WHATSAPP
- * ==========================================
- */
 function extrairNumero(msg){
 
-    if(msg.key?.participant){
+    if(msg.key?.participant)
         return msg.key.participant.split("@")[0]
-    }
 
-    if(msg.key?.participantPn){
+    if(msg.key?.participantPn)
         return msg.key.participantPn.split("@")[0]
-    }
 
-    if(msg.key?.senderPn){
+    if(msg.key?.senderPn)
         return msg.key.senderPn.split("@")[0]
-    }
 
     if(msg.key?.remoteJid){
 
         const jid = msg.key.remoteJid
 
-        if(jid.includes("@lid")) return null
         if(jid.includes("@broadcast")) return null
         if(jid.includes("status@broadcast")) return null
+        if(jid.includes("@lid")) return null
 
         return jid.split("@")[0]
     }
@@ -54,12 +54,12 @@ function extrairNumero(msg){
     return null
 }
 
+/*
+==========================================
+EXTRAIR TEXTO
+==========================================
+*/
 
-/**
- * ==========================================
- * EXTRAIR TEXTO DA MENSAGEM
- * ==========================================
- */
 function extrairTexto(msg){
 
     return (
@@ -75,77 +75,99 @@ function extrairTexto(msg){
 }
 
 
+/*
+==========================================
+CRIAR SESSÃO WHATSAPP
+==========================================
+*/
 
-/**
- * ==========================================
- * INICIAR WHATSAPP
- * ==========================================
- */
-async function iniciar(){
+async function iniciarSessao(empresa_id){
+
+    if(sessoes[empresa_id]){
+        console.log("Sessão já existe:",empresa_id)
+        return
+    }
+
+    console.log("Iniciando sessão empresa",empresa_id)
+
+    const pasta = "./data/session_" + empresa_id
 
     const { state, saveCreds } =
-        await useMultiFileAuthState("./data/session_" + empresa_id)
+        await useMultiFileAuthState(pasta)
 
     const { version } =
         await fetchLatestBaileysVersion()
 
-    sock = makeWASocket({
+    const sock = makeWASocket({
         auth: state,
         version,
-        browser: ["CapLeads","Chrome","1.0"]
+        browser:["CapLeads","Chrome","1.0"]
     })
 
-    sock.ev.on("creds.update", saveCreds)
+    sessoes[empresa_id] = {
+        sock,
+        qr:null,
+        conectado:false
+    }
 
+    sock.ev.on("creds.update",saveCreds)
 
-    /**
-     * ==========================================
-     * STATUS DA CONEXÃO
-     * ==========================================
-     */
+    /*
+    ==========================================
+    STATUS DA CONEXÃO
+    ==========================================
+    */
+
     sock.ev.on("connection.update", async (update)=>{
 
-        const { connection, qr, lastDisconnect } = update
+        const {connection,qr,lastDisconnect} = update
 
         if(qr){
 
-            qrCode = await qrcode.toDataURL(qr)
+            sessoes[empresa_id].qr =
+                await qrcode.toDataURL(qr)
 
-            console.log("📱 QR Code gerado")
+            sessoes[empresa_id].conectado = false
 
-            conectado = false
+            console.log("QR gerado empresa",empresa_id)
         }
 
-        if(connection === "open"){
+        if(connection==="open"){
 
-            console.log("✅ WhatsApp conectado")
+            sessoes[empresa_id].qr = null
+            sessoes[empresa_id].conectado = true
 
-            conectado = true
-            qrCode = null
+            console.log("WhatsApp conectado empresa",empresa_id)
         }
 
-        if(connection === "close"){
-
-            console.log("⚠️ Conexão fechada")
+        if(connection==="close"){
 
             const shouldReconnect =
                 lastDisconnect?.error?.output?.statusCode !==
                 DisconnectReason.loggedOut
 
-            if(shouldReconnect){
-                iniciar()
-            }
+            console.log("Conexão fechada empresa",empresa_id)
 
+            if(shouldReconnect){
+
+                iniciarSessao(empresa_id)
+
+            }else{
+
+                delete sessoes[empresa_id]
+
+            }
         }
 
     })
 
 
-    /**
-     * ==========================================
-     * CLIENTE DIGITANDO
-     * ==========================================
-     */
+    /*
+    ==========================================
+    CLIENTE DIGITANDO
+    ==========================================
+    */
+
     sock.ev.on("presence.update", async (data)=>{
 
         const jid = Object.keys(data.presences || {})[0]
@@ -156,9 +178,7 @@ async function iniciar(){
 
         if(!presence) return
 
-        const status = presence.lastKnownPresence
-
-        if(status === "composing"){
+        if(presence.lastKnownPresence==="composing"){
 
             const numero = jid.split("@")[0]
 
@@ -172,6 +192,7 @@ async function iniciar(){
                             "Content-Type":"application/json"
                         },
                         body:JSON.stringify({
+                            empresa_id,
                             numero
                         })
                     }
@@ -188,27 +209,26 @@ async function iniciar(){
     })
 
 
-    /**
-     * ==========================================
-     * MENSAGEM RECEBIDA
-     * ==========================================
-     */
-    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+    /*
+    ==========================================
+    MENSAGENS RECEBIDAS
+    ==========================================
+    */
 
-        if(type !== "notify" && type !== "append") return
+    sock.ev.on("messages.upsert", async ({messages,type})=>{
+
+        if(type!=="notify" && type!=="append") return
 
         const msg = messages?.[0]
 
         if(!msg) return
         if(msg.key?.fromMe) return
 
-
-        const messageContent =
+        const content =
             msg.message?.ephemeralMessage?.message ||
             msg.message
 
-        if(!messageContent) return
-
+        if(!content) return
 
         const id = msg.key?.id
 
@@ -216,46 +236,24 @@ async function iniciar(){
 
         if(id) mensagensProcessadas.add(id)
 
-        if(mensagensProcessadas.size > 5000){
+        if(mensagensProcessadas.size>5000)
             mensagensProcessadas.clear()
-        }
-
 
         const numero = extrairNumero(msg)
 
-        if(!numero){
+        if(!numero) return
 
-            console.log("⚠️ Mensagem ignorada (lid/broadcast)")
+        const texto =
+            extrairTexto({message:content})
 
-            return
-        }
+        if(!texto) return
 
+        console.log("Mensagem empresa",empresa_id)
+        console.log(numero,texto)
 
-        const texto = extrairTexto({ message: messageContent })
-
-        if(!texto){
-
-            console.log("⚠️ Mensagem sem texto")
-
-            return
-        }
-
-
-        console.log("📩 Mensagem recebida")
-        console.log("Numero:", numero)
-        console.log("Texto:", texto)
-
-
-        /**
-         * ==========================================
-         * WEBHOOK → CAPLEADS
-         * ==========================================
-         */
         try{
 
-            console.log("📡 Enviando webhook para CapLeads...")
-
-            const r = await fetch(
+            await fetch(
                 "https://www.capleads.com.br/whatsapp/receive",
                 {
                     method:"POST",
@@ -263,6 +261,7 @@ async function iniciar(){
                         "Content-Type":"application/json"
                     },
                     body:JSON.stringify({
+                        empresa_id,
                         numero,
                         mensagem:texto,
                         origem:"cliente"
@@ -270,21 +269,9 @@ async function iniciar(){
                 }
             )
 
-            if(!r.ok){
-
-                const erro = await r.text()
-
-                console.log("❌ Backend respondeu erro:", erro)
-
-            }else{
-
-                console.log("✅ Webhook enviado para CapLeads")
-
-            }
-
         }catch(e){
 
-            console.log("❌ Erro webhook:", e)
+            console.log("Erro webhook:",e)
 
         }
 
@@ -292,119 +279,38 @@ async function iniciar(){
 
 }
 
-iniciar()
+/*
+==========================================
+INICIAR SESSÃO (CONNECT)
+==========================================
+*/
 
+app.post("/connect", async (req,res)=>{
 
+    const {empresa_id} = req.body
 
-/**
- * ==========================================
- * STATUS WHATSAPP
- * ==========================================
- */
-app.get("/status",(req,res)=>{
-
-    res.json({
-        connected: conectado
-    })
-
-})
-
-
-/**
- * ==========================================
- * QR CODE
- * ==========================================
- */
-app.get("/qr",(req,res)=>{
-
-    res.json({
-        qr: qrCode,
-        connected: conectado
-    })
-
-})
-
-
-/**
- * ==========================================
- * ENVIAR MENSAGEM
- * ==========================================
- */
-app.post("/send", async (req,res)=>{
-
-    const { numero, mensagem } = req.body
-
-    if(!numero || !mensagem){
-
+    if(!empresa_id){
         return res.status(400).json({
-            status:"erro"
+            erro:"empresa_id obrigatório"
         })
-
     }
 
     try{
 
-        await sock.sendMessage(
-            numero + "@s.whatsapp.net",
-            { text: mensagem }
-        )
-
-        res.json({ status:"ok" })
-
-    }catch(e){
-
-        console.log("❌ Erro envio:", e)
-
-        res.status(500).json({
-            status:"erro"
-        })
-
-    }
-
-})
-
-
-
-/**
- * ==========================================
- * LOGOUT / DESCONECTAR
- * ==========================================
- */
-app.post("/logout", async (req,res)=>{
-
-    try{
-
-        if(sock){
-            await sock.logout()
+        if(!sessoes[empresa_id]){
+            await iniciarSessao(empresa_id)
         }
-
-        qrCode = null
-        conectado = false
-
-        const authPath = path.resolve("./data/auth_info")
-
-        if(fs.existsSync(authPath)){
-            fs.rmSync(authPath,{recursive:true,force:true})
-        }
-
-        setTimeout(()=>{
-
-            iniciar()
-
-        },1500)
 
         res.json({
-            ok:true,
-            message:"WhatsApp desconectado"
+            status:"iniciando"
         })
 
     }catch(e){
 
-        console.log("❌ Erro logout:",e)
+        console.log("Erro iniciar sessão:",e)
 
         res.status(500).json({
-            ok:false,
-            erro:String(e)
+            erro:"erro iniciar sessão"
         })
 
     }
@@ -413,16 +319,232 @@ app.post("/logout", async (req,res)=>{
 
 
 
-/**
- * ==========================================
- * START SERVER
- * ==========================================
- */
-const PORT = process.env.PORT || 3005
+/*
+==========================================
+QR CODE DA EMPRESA
+==========================================
+*/
 
-app.listen(PORT, ()=>{
+app.get("/qr",(req,res)=>{
 
-    console.log("🚀 Connector WhatsApp rodando na porta",PORT)
+    const empresa_id = req.query.empresa_id
+
+    if(!empresa_id){
+        return res.json({
+            qr:null
+        })
+    }
+
+    const sessao = sessoes[empresa_id]
+
+    if(!sessao){
+        return res.json({
+            qr:null
+        })
+    }
+
+    res.json({
+        qr:sessao.qr,
+        connected:sessao.conectado
+    })
 
 })
 
+
+
+/*
+==========================================
+STATUS WHATSAPP
+==========================================
+*/
+
+app.get("/status",(req,res)=>{
+
+    const empresa_id = req.query.empresa_id
+
+    if(!empresa_id){
+        return res.json({
+            connected:false
+        })
+    }
+
+    const sessao = sessoes[empresa_id]
+
+    if(!sessao){
+        return res.json({
+            connected:false
+        })
+    }
+
+    res.json({
+        connected:sessao.conectado
+    })
+
+})
+
+
+
+/*
+==========================================
+ENVIAR MENSAGEM
+==========================================
+*/
+
+app.post("/send", async (req,res)=>{
+
+    const {empresa_id,numero,mensagem} = req.body
+
+    if(!empresa_id || !numero || !mensagem){
+
+        return res.status(400).json({
+            erro:"dados inválidos"
+        })
+
+    }
+
+    const sessao = sessoes[empresa_id]
+
+    if(!sessao){
+
+        return res.status(400).json({
+            erro:"sessão não encontrada"
+        })
+
+    }
+
+    try{
+
+        await sessao.sock.sendMessage(
+            numero+"@s.whatsapp.net",
+            {text:mensagem}
+        )
+
+        res.json({
+            status:"ok"
+        })
+
+    }catch(e){
+
+        console.log("Erro envio:",e)
+
+        res.status(500).json({
+            erro:"erro envio"
+        })
+
+    }
+
+})
+
+
+
+/*
+==========================================
+LOGOUT / DESCONECTAR EMPRESA
+==========================================
+*/
+
+app.post("/logout", async (req,res)=>{
+
+    const {empresa_id} = req.body
+
+    if(!empresa_id){
+
+        return res.status(400).json({
+            erro:"empresa_id obrigatório"
+        })
+
+    }
+
+    try{
+
+        const sessao = sessoes[empresa_id]
+
+        if(sessao && sessao.sock){
+
+            await sessao.sock.logout()
+
+        }
+
+        const authPath =
+            path.resolve("./data/session_"+empresa_id)
+
+        if(fs.existsSync(authPath)){
+
+            fs.rmSync(authPath,{
+                recursive:true,
+                force:true
+            })
+
+        }
+
+        delete sessoes[empresa_id]
+
+        res.json({
+            ok:true
+        })
+
+    }catch(e){
+
+        console.log("Erro logout:",e)
+
+        res.status(500).json({
+            erro:"erro logout"
+        })
+
+    }
+
+})
+
+
+
+/*
+==========================================
+AUTO RECONECTAR SESSÕES AO INICIAR
+==========================================
+*/
+
+function restaurarSessoes(){
+
+    const pasta = "./data"
+
+    if(!fs.existsSync(pasta)) return
+
+    const dirs = fs.readdirSync(pasta)
+
+    dirs.forEach((dir)=>{
+
+        if(dir.startsWith("session_")){
+
+            const empresa_id =
+                dir.replace("session_","")
+
+            console.log(
+                "Restaurando sessão empresa",
+                empresa_id
+            )
+
+            iniciarSessao(empresa_id)
+
+        }
+
+    })
+
+}
+
+
+
+/*
+==========================================
+START SERVER
+==========================================
+*/
+
+const PORT = process.env.PORT || 3005
+
+app.listen(PORT,()=>{
+
+    console.log("🚀 Connector WhatsApp rodando porta",PORT)
+
+    restaurarSessoes()
+
+})
