@@ -500,33 +500,32 @@ app.get("/qr", async (req,res)=>{
 STATUS WHATSAPP
 ==========================================
 */
-
-app.get("/status",(req,res)=>{
+app.get("/status", async (req,res)=>{
 
     const empresa_id = req.query.empresa_id
 
     if(!empresa_id){
-        return res.json({
-            connected:false
-        })
+        return res.json({ connected:false })
     }
 
-    const sessao = sessoes[empresa_id]
+    let sessao = sessoes[empresa_id]
 
     if(!sessao){
-        return res.json({
-            connected:false
-        })
+
+        console.log("Criando sessão via status",empresa_id)
+
+        await iniciarSessao(empresa_id)
+
+        sessao = sessoes[empresa_id]
     }
 
     res.json({
-        connected:sessao.conectado
+        connected: sessao?.conectado || false
     })
 
 })
 
-
-
+/*
 /*
 ==========================================
 ENVIAR MENSAGEM
@@ -535,7 +534,7 @@ ENVIAR MENSAGEM
 
 app.post("/send", async (req,res)=>{
 
-    const {empresa_id,numero,mensagem} = req.body
+    const {empresa_id, numero, mensagem} = req.body
 
     if(!empresa_id || !numero || !mensagem){
 
@@ -547,7 +546,7 @@ app.post("/send", async (req,res)=>{
 
     const sessao = sessoes[empresa_id]
 
-    if(!sessao){
+    if(!sessao || !sessao.sock){
 
         return res.status(400).json({
             erro:"sessão não encontrada"
@@ -555,11 +554,44 @@ app.post("/send", async (req,res)=>{
 
     }
 
+    if(!sessao.conectado){
+
+        return res.status(400).json({
+            erro:"whatsapp não conectado"
+        })
+
+    }
+
     try{
 
+        /*
+        ==========================================
+        NORMALIZA NÚMERO
+        ==========================================
+        */
+
+        let numeroLimpo = numero
+            .replace(/\D/g,"")
+
+        let jid = numeroLimpo
+
+        if(!jid.includes("@s.whatsapp.net")){
+            jid = numeroLimpo + "@s.whatsapp.net"
+        }
+
+        console.log("📤 Enviando mensagem empresa",empresa_id)
+        console.log("Para:",jid)
+        console.log("Texto:",mensagem)
+
+        /*
+        ==========================================
+        ENVIO
+        ==========================================
+        */
+
         await sessao.sock.sendMessage(
-            numero+"@s.whatsapp.net",
-            {text:mensagem}
+            jid,
+            { text: mensagem }
         )
 
         res.json({
@@ -568,7 +600,7 @@ app.post("/send", async (req,res)=>{
 
     }catch(e){
 
-        console.log("Erro envio:",e)
+        console.log("❌ Erro envio:",e)
 
         res.status(500).json({
             erro:"erro envio"
@@ -697,3 +729,4 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
