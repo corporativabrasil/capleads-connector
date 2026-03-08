@@ -517,6 +517,7 @@ app.get("/status", async (req,res)=>{
         await iniciarSessao(empresa_id)
 
         sessao = sessoes[empresa_id]
+
     }
 
     res.json({
@@ -729,4 +730,5 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
