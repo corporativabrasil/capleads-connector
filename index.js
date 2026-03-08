@@ -81,7 +81,7 @@ function extrairTexto(msg){
 async function iniciar() {
 
     const { state, saveCreds } =
-        await useMultiFileAuthState("auth_info")
+        await useMultiFileAuthState("./auth_info")
 
     const { version } =
         await fetchLatestBaileysVersion()
@@ -330,4 +330,5 @@ app.listen(PORT, ()=>{
     console.log("🚀 Connector WhatsApp rodando na porta", PORT)
 
 })
+
 
