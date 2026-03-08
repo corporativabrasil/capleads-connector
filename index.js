@@ -14,6 +14,7 @@ import makeWASocket, {
 const app = express()
 app.use(express.json())
 
+
 /*
 ==========================================
 ARMAZENA SESSÕES POR EMPRESA
@@ -388,6 +389,26 @@ function extrairTexto(msg){
 
 /*
 ==========================================
+GARANTIR QUE A SESSÃO EXISTE
+==========================================
+*/
+
+async function garantirSessao(empresa_id){
+
+    if(!empresa_id) return
+
+    if(!sessoes[empresa_id]){
+
+        console.log("⚙️ Criando sessão automaticamente:", empresa_id)
+
+        await iniciarSessao(empresa_id)
+
+    }
+
+}
+
+/*
+==========================================
 INICIAR SESSÃO (CONNECT)
 ==========================================
 */
@@ -470,28 +491,53 @@ QR CODE DA EMPRESA
 */
 app.get("/qr", async (req,res)=>{
 
-    const empresa_id = req.query.empresa_id
+    try{
 
-    if(!empresa_id){
-        return res.json({ qr:null })
+        const empresa_id = String(req.query.empresa_id || "")
+
+        if(!empresa_id){
+
+            return res.json({
+                qr:null,
+                connected:false
+            })
+        }
+
+        let sessao = sessoes[empresa_id]
+
+        // inicia sessão se não existir
+        if(!sessao){
+
+            console.log("🔵 Iniciando sessão automaticamente:",empresa_id)
+
+            await iniciarSessao(empresa_id)
+
+            sessao = sessoes[empresa_id]
+        }
+
+        // segurança caso a sessão ainda não esteja pronta
+        if(!sessao){
+
+            return res.json({
+                qr:null,
+                connected:false
+            })
+        }
+
+        res.json({
+            qr: sessao.qr || null,
+            connected: sessao.connected || false
+        })
+
+    }catch(e){
+
+        console.log("Erro ao obter QR:",e)
+
+        res.json({
+            qr:null,
+            connected:false
+        })
     }
-
-    let sessao = sessoes[empresa_id]
-
-    // inicia sessão se não existir
-    if(!sessao){
-
-        console.log("Iniciando sessão automaticamente",empresa_id)
-
-        await iniciarSessao(empresa_id)
-
-        sessao = sessoes[empresa_id]
-    }
-
-    res.json({
-        qr: sessao?.qr || null,
-        connected: sessao?.conectado || false
-    })
 
 })
 
@@ -730,5 +776,6 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
