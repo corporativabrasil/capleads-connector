@@ -3,6 +3,7 @@ import fetch from "node-fetch"
 import qrcode from "qrcode"
 import fs from "fs"
 import path from "path"
+import { Boom } from "@hapi/boom"
 
 import makeWASocket, {
     useMultiFileAuthState,
@@ -101,9 +102,12 @@ async function iniciarSessao(empresa_id){
     const sock = makeWASocket({
         auth: state,
         version,
-        browser:["CapLeads","Chrome","1.0"]
+        browser:["CapLeads","Chrome","1.0"],
+        markOnlineOnConnect: false,
+        syncFullHistory: false,
+        connectTimeoutMs: 60000
     })
-
+    
     sessoes[empresa_id] = {
         sock,
         qr:null,
@@ -112,53 +116,92 @@ async function iniciarSessao(empresa_id){
 
     sock.ev.on("creds.update",saveCreds)
 
+        /*
     /*
     ==========================================
     STATUS DA CONEXÃO
     ==========================================
     */
-
+    
     sock.ev.on("connection.update", async (update)=>{
-
-        const {connection,qr,lastDisconnect} = update
-
+    
+        const { connection, qr, lastDisconnect } = update
+    
+        /*
+        ==========================================
+        QR CODE GERADO
+        ==========================================
+        */
+    
         if(qr){
-
-            sessoes[empresa_id].qr =
-                await qrcode.toDataURL(qr)
-
-            sessoes[empresa_id].conectado = false
-
-            console.log("QR gerado empresa",empresa_id)
+    
+            try{
+    
+                sessoes[empresa_id].qr = await qrcode.toDataURL(qr)
+                sessoes[empresa_id].conectado = false
+    
+                console.log("📱 QR gerado empresa",empresa_id)
+    
+            }catch(e){
+    
+                console.log("Erro gerar QR:",e)
+    
+            }
+    
         }
-
-        if(connection==="open"){
-
+    
+        /*
+        ==========================================
+        CONEXÃO ABERTA
+        ==========================================
+        */
+    
+        if(connection === "open"){
+    
             sessoes[empresa_id].qr = null
             sessoes[empresa_id].conectado = true
-
-            console.log("WhatsApp conectado empresa",empresa_id)
+    
+            console.log("✅ WhatsApp conectado empresa",empresa_id)
+    
         }
-
-        if(connection==="close"){
-
+    
+        /*
+        ==========================================
+        CONEXÃO FECHADA
+        ==========================================
+        */
+    
+        if(connection === "close"){
+    
+            const statusCode =
+                new Boom(lastDisconnect?.error)?.output?.statusCode
+    
             const shouldReconnect =
-                lastDisconnect?.error?.output?.statusCode !==
-                DisconnectReason.loggedOut
-
-            console.log("Conexão fechada empresa",empresa_id)
-
+                statusCode !== DisconnectReason.loggedOut
+    
+            console.log("⚠️ Conexão fechada empresa",empresa_id)
+            console.log("Motivo:",statusCode)
+    
             if(shouldReconnect){
-
-                iniciarSessao(empresa_id)
-
+    
+                console.log("🔄 Reconectando empresa",empresa_id)
+    
+                setTimeout(()=>{
+    
+                    iniciarSessao(empresa_id)
+    
+                },3000)
+    
             }else{
-
+    
+                console.log("🚪 Sessão encerrada empresa",empresa_id)
+    
                 delete sessoes[empresa_id]
-
+    
             }
+    
         }
-
+    
     })
 
 
@@ -591,6 +634,7 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
 
