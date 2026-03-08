@@ -397,6 +397,8 @@ async function garantirSessao(empresa_id){
 
     if(!empresa_id) return
 
+    empresa_id = String(empresa_id)
+
     if(!sessoes[empresa_id]){
 
         console.log("⚙️ Criando sessão automaticamente:", empresa_id)
@@ -425,12 +427,11 @@ app.post("/connect", async (req,res)=>{
 
     try{
 
-        if(!sessoes[empresa_id]){
-            await iniciarSessao(empresa_id)
-        }
+        await garantirSessao(empresa_id)
 
         res.json({
-            status:"iniciando"
+            status:"iniciando",
+            empresa_id
         })
 
     }catch(e){
@@ -463,9 +464,7 @@ app.get("/connect", async (req,res)=>{
 
     try{
 
-        if(!sessoes[empresa_id]){
-            await iniciarSessao(empresa_id)
-        }
+        await garantirSessao(empresa_id)
 
         res.json({
             status:"iniciando sessão",
@@ -489,6 +488,7 @@ app.get("/connect", async (req,res)=>{
 QR CODE DA EMPRESA
 ==========================================
 */
+
 app.get("/qr", async (req,res)=>{
 
     try{
@@ -503,19 +503,10 @@ app.get("/qr", async (req,res)=>{
             })
         }
 
-        let sessao = sessoes[empresa_id]
+        await garantirSessao(empresa_id)
 
-        // inicia sessão se não existir
-        if(!sessao){
+        const sessao = sessoes[empresa_id]
 
-            console.log("🔵 Iniciando sessão automaticamente:",empresa_id)
-
-            await iniciarSessao(empresa_id)
-
-            sessao = sessoes[empresa_id]
-        }
-
-        // segurança caso a sessão ainda não esteja pronta
         if(!sessao){
 
             return res.json({
@@ -526,7 +517,7 @@ app.get("/qr", async (req,res)=>{
 
         res.json({
             qr: sessao.qr || null,
-            connected: sessao.connected || false
+            connected: sessao.conectado || false
         })
 
     }catch(e){
@@ -537,6 +528,7 @@ app.get("/qr", async (req,res)=>{
             qr:null,
             connected:false
         })
+
     }
 
 })
@@ -546,25 +538,18 @@ app.get("/qr", async (req,res)=>{
 STATUS WHATSAPP
 ==========================================
 */
+
 app.get("/status", async (req,res)=>{
 
-    const empresa_id = req.query.empresa_id
+    const empresa_id = String(req.query.empresa_id || "")
 
     if(!empresa_id){
         return res.json({ connected:false })
     }
 
-    let sessao = sessoes[empresa_id]
+    await garantirSessao(empresa_id)
 
-    if(!sessao){
-
-        console.log("Criando sessão via status",empresa_id)
-
-        await iniciarSessao(empresa_id)
-
-        sessao = sessoes[empresa_id]
-
-    }
+    const sessao = sessoes[empresa_id]
 
     res.json({
         connected: sessao?.conectado || false
@@ -572,7 +557,6 @@ app.get("/status", async (req,res)=>{
 
 })
 
-/*
 /*
 ==========================================
 ENVIAR MENSAGEM
@@ -617,8 +601,7 @@ app.post("/send", async (req,res)=>{
         ==========================================
         */
 
-        let numeroLimpo = numero
-            .replace(/\D/g,"")
+        let numeroLimpo = numero.replace(/\D/g,"")
 
         let jid = numeroLimpo
 
@@ -656,8 +639,6 @@ app.post("/send", async (req,res)=>{
     }
 
 })
-
-
 
 /*
 ==========================================
@@ -776,6 +757,7 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
 
