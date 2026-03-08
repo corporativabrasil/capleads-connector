@@ -505,9 +505,13 @@ AUTO RECONECTAR SESSÕES AO INICIAR
 
 function restaurarSessoes(){
 
-    garantirPastaData()
-
     const pasta = "./data"
+
+    if(!fs.existsSync(pasta)){
+        fs.mkdirSync(pasta,{recursive:true})
+        console.log("📁 pasta data criada")
+        return
+    }
 
     if(!fs.existsSync(pasta)) return
 
@@ -550,4 +554,5 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
