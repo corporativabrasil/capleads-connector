@@ -582,7 +582,7 @@ START SERVER
 ==========================================
 */
 
-const PORT = process.env.PORT || 3005
+const PORT = process.env.PORT
 
 app.listen(PORT,()=>{
 
@@ -591,6 +591,7 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
 
