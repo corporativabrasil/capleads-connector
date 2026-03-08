@@ -468,33 +468,32 @@ app.get("/connect", async (req,res)=>{
 QR CODE DA EMPRESA
 ==========================================
 */
-
-app.get("/qr",(req,res)=>{
+app.get("/qr", async (req,res)=>{
 
     const empresa_id = req.query.empresa_id
 
     if(!empresa_id){
-        return res.json({
-            qr:null
-        })
+        return res.json({ qr:null })
     }
 
-    const sessao = sessoes[empresa_id]
+    let sessao = sessoes[empresa_id]
 
+    // inicia sessão se não existir
     if(!sessao){
-        return res.json({
-            qr:null
-        })
+
+        console.log("Iniciando sessão automaticamente",empresa_id)
+
+        await iniciarSessao(empresa_id)
+
+        sessao = sessoes[empresa_id]
     }
 
     res.json({
-        qr:sessao.qr,
-        connected:sessao.conectado
+        qr: sessao?.qr || null,
+        connected: sessao?.conectado || false
     })
 
 })
-
-
 
 /*
 ==========================================
@@ -698,10 +697,3 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
-
-
-
-
-
-
-
