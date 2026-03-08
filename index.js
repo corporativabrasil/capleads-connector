@@ -1,8 +1,8 @@
 import express from "express"
 import fetch from "node-fetch"
 import qrcode from "qrcode"
-import fs from "fs";
-import path from "path";
+import fs from "fs"
+import path from "path"
 
 import makeWASocket, {
     useMultiFileAuthState,
@@ -17,13 +17,13 @@ let sock
 let qrCode = null
 let conectado = false
 
-// controle anti-duplicação
+// controle anti duplicação
 const mensagensProcessadas = new Set()
 
 
 /**
  * ==========================================
- * EXTRAI NÚMERO CORRETO DO WHATSAPP
+ * EXTRAI NÚMERO DO WHATSAPP
  * ==========================================
  */
 function extrairNumero(msg){
@@ -67,6 +67,9 @@ function extrairTexto(msg){
         msg.message?.extendedTextMessage?.text ||
         msg.message?.imageMessage?.caption ||
         msg.message?.videoMessage?.caption ||
+        msg.message?.buttonsResponseMessage?.selectedButtonId ||
+        msg.message?.listResponseMessage?.title ||
+        msg.message?.templateButtonReplyMessage?.selectedId ||
         ""
     )
 }
@@ -78,7 +81,7 @@ function extrairTexto(msg){
  * INICIAR WHATSAPP
  * ==========================================
  */
-async function iniciar() {
+async function iniciar(){
 
     const { state, saveCreds } =
         await useMultiFileAuthState("./data/auth_info")
@@ -89,7 +92,7 @@ async function iniciar() {
     sock = makeWASocket({
         auth: state,
         version,
-        browser: ["CapLeads", "Chrome", "1.0"]
+        browser: ["CapLeads","Chrome","1.0"]
     })
 
     sock.ev.on("creds.update", saveCreds)
@@ -100,11 +103,11 @@ async function iniciar() {
      * STATUS DA CONEXÃO
      * ==========================================
      */
-    sock.ev.on("connection.update", async (update) => {
+    sock.ev.on("connection.update", async (update)=>{
 
         const { connection, qr, lastDisconnect } = update
 
-        if (qr) {
+        if(qr){
 
             qrCode = await qrcode.toDataURL(qr)
 
@@ -113,7 +116,7 @@ async function iniciar() {
             conectado = false
         }
 
-        if (connection === "open") {
+        if(connection === "open"){
 
             console.log("✅ WhatsApp conectado")
 
@@ -121,109 +124,122 @@ async function iniciar() {
             qrCode = null
         }
 
-        if (connection === "close") {
+        if(connection === "close"){
+
+            console.log("⚠️ Conexão fechada")
 
             const shouldReconnect =
                 lastDisconnect?.error?.output?.statusCode !==
                 DisconnectReason.loggedOut
 
-            console.log("⚠️ Conexão fechada")
-
-            if (shouldReconnect) {
+            if(shouldReconnect){
                 iniciar()
             }
+
         }
 
     })
 
 
-/**
- * ==========================================
- * DETECTAR CLIENTE DIGITANDO
- * ==========================================
- */
+    /**
+     * ==========================================
+     * CLIENTE DIGITANDO
+     * ==========================================
+     */
+    sock.ev.on("presence.update", async (data)=>{
 
-sock.ev.on("presence.update", async (data) => {
+        const jid = Object.keys(data.presences || {})[0]
 
-    if(!data.presences) return
+        if(!jid) return
 
-    const jid = Object.keys(data.presences)[0]
+        const presence = data.presences[jid]
 
-    const presence = data.presences[jid]
+        if(!presence) return
 
-    if(!presence) return
+        const status = presence.lastKnownPresence
 
-    const status = presence.lastKnownPresence
+        if(status === "composing"){
 
-    if(status === "composing"){
+            const numero = jid.split("@")[0]
 
-        const numero = jid.split("@")[0]
+            try{
 
-        try{
+                await fetch(
+                    "https://www.capleads.com.br/whatsapp/digitando",
+                    {
+                        method:"POST",
+                        headers:{
+                            "Content-Type":"application/json"
+                        },
+                        body:JSON.stringify({
+                            numero
+                        })
+                    }
+                )
 
-            await fetch(
-                "https://www.capleads.com.br/whatsapp/digitando",
-                {
-                    method:"POST",
-                    headers:{
-                        "Content-Type":"application/json"
-                    },
-                    body:JSON.stringify({
-                        numero
-                    })
-                }
-            )
+            }catch(e){
 
-        }catch(e){
+                console.log("Erro digitando:",e)
 
-            console.log("Erro digitando:",e)
+            }
 
         }
 
-    }
-
-})
+    })
 
 
     /**
      * ==========================================
-     * EVENTO MENSAGEM RECEBIDA
+     * MENSAGEM RECEBIDA
      * ==========================================
      */
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
 
-        // evita duplicação do Baileys (append/notify)
-        if(type !== "notify") return
+        if(type !== "notify" && type !== "append") return
 
         const msg = messages?.[0]
 
-        if (!msg) return
-        if (!msg.message) return
+        if(!msg) return
+        if(msg.key?.fromMe) return
 
-        // ignora mensagens enviadas pelo próprio sistema
-        if (msg.key?.fromMe) return
+
+        const messageContent =
+            msg.message?.ephemeralMessage?.message ||
+            msg.message
+
+        if(!messageContent) return
+
 
         const id = msg.key?.id
 
-        // evita duplicação
-        if(mensagensProcessadas.has(id)) return
-        mensagensProcessadas.add(id)
+        if(id && mensagensProcessadas.has(id)) return
 
-        // controle memória
+        if(id) mensagensProcessadas.add(id)
+
         if(mensagensProcessadas.size > 5000){
             mensagensProcessadas.clear()
         }
 
+
         const numero = extrairNumero(msg)
 
         if(!numero){
+
             console.log("⚠️ Mensagem ignorada (lid/broadcast)")
+
             return
         }
 
-        const texto = extrairTexto(msg)
 
-        if(!texto) return
+        const texto = extrairTexto({ message: messageContent })
+
+        if(!texto){
+
+            console.log("⚠️ Mensagem sem texto")
+
+            return
+        }
+
 
         console.log("📩 Mensagem recebida")
         console.log("Numero:", numero)
@@ -235,27 +251,38 @@ sock.ev.on("presence.update", async (data) => {
          * WEBHOOK → CAPLEADS
          * ==========================================
          */
-        try {
+        try{
 
-        console.log("Enviando webhook para CapLeads", numero, texto)
-        
-        await fetch(
-            "https://www.capleads.com.br/whatsapp/receive",
+            console.log("📡 Enviando webhook para CapLeads...")
+
+            const r = await fetch(
+                "https://www.capleads.com.br/whatsapp/receive",
                 {
-                    method: "POST",
-                    headers: {
-                        "Content-Type": "application/json"
+                    method:"POST",
+                    headers:{
+                        "Content-Type":"application/json"
                     },
-                    body: JSON.stringify({
+                    body:JSON.stringify({
                         numero,
-                        mensagem: texto
+                        mensagem:texto,
+                        origem:"cliente"
                     })
                 }
             )
 
-            console.log("✅ Webhook enviado para CapLeads")
+            if(!r.ok){
 
-        } catch (e) {
+                const erro = await r.text()
+
+                console.log("❌ Backend respondeu erro:", erro)
+
+            }else{
+
+                console.log("✅ Webhook enviado para CapLeads")
+
+            }
+
+        }catch(e){
 
             console.log("❌ Erro webhook:", e)
 
@@ -274,7 +301,7 @@ iniciar()
  * STATUS WHATSAPP
  * ==========================================
  */
-app.get("/status", (req,res)=>{
+app.get("/status",(req,res)=>{
 
     res.json({
         connected: conectado
@@ -288,7 +315,7 @@ app.get("/status", (req,res)=>{
  * QR CODE
  * ==========================================
  */
-app.get("/qr", (req,res)=>{
+app.get("/qr",(req,res)=>{
 
     res.json({
         qr: qrCode,
@@ -305,66 +332,85 @@ app.get("/qr", (req,res)=>{
  */
 app.post("/send", async (req,res)=>{
 
-    const {numero, mensagem} = req.body
+    const { numero, mensagem } = req.body
 
-    try {
+    if(!numero || !mensagem){
+
+        return res.status(400).json({
+            status:"erro"
+        })
+
+    }
+
+    try{
 
         await sock.sendMessage(
             numero + "@s.whatsapp.net",
-            {text: mensagem}
+            { text: mensagem }
         )
 
-        res.json({status:"ok"})
+        res.json({ status:"ok" })
 
-    } catch(e){
+    }catch(e){
 
         console.log("❌ Erro envio:", e)
 
-        res.json({status:"erro"})
+        res.status(500).json({
+            status:"erro"
+        })
 
     }
 
 })
+
+
 
 /**
  * ==========================================
  * LOGOUT / DESCONECTAR
  * ==========================================
  */
-app.post("/logout", async (req, res) => {
-    try {
-        if (sock) {
-            await sock.logout();
+app.post("/logout", async (req,res)=>{
+
+    try{
+
+        if(sock){
+            await sock.logout()
         }
 
-        qrCode = null;
-        conectado = false;
+        qrCode = null
+        conectado = false
 
-        const authPath = path.resolve("auth_info");
+        const authPath = path.resolve("./data/auth_info")
 
-        if (fs.existsSync(authPath)) {
-            fs.rmSync(authPath, { recursive: true, force: true });
+        if(fs.existsSync(authPath)){
+            fs.rmSync(authPath,{recursive:true,force:true})
         }
 
-        // reinicia para gerar novo QR
-        setTimeout(() => {
-            iniciar();
-        }, 1500);
+        setTimeout(()=>{
+
+            iniciar()
+
+        },1500)
 
         res.json({
-            ok: true,
-            message: "WhatsApp desconectado com sucesso"
-        });
+            ok:true,
+            message:"WhatsApp desconectado"
+        })
 
-    } catch (e) {
-        console.log("❌ Erro logout:", e);
+    }catch(e){
+
+        console.log("❌ Erro logout:",e)
 
         res.status(500).json({
-            ok: false,
-            erro: String(e)
-        });
+            ok:false,
+            erro:String(e)
+        })
+
     }
-});
+
+})
+
 
 
 /**
@@ -372,16 +418,10 @@ app.post("/logout", async (req, res) => {
  * START SERVER
  * ==========================================
  */
-
 const PORT = process.env.PORT || 3005
 
 app.listen(PORT, ()=>{
 
-    console.log("🚀 Connector WhatsApp rodando na porta", PORT)
+    console.log("🚀 Connector WhatsApp rodando na porta",PORT)
 
 })
-
-
-
-
-
