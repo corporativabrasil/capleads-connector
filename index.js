@@ -137,6 +137,54 @@ async function iniciar() {
     })
 
 
+/**
+ * ==========================================
+ * DETECTAR CLIENTE DIGITANDO
+ * ==========================================
+ */
+
+sock.ev.on("presence.update", async (data) => {
+
+    if(!data.presences) return
+
+    const jid = Object.keys(data.presences)[0]
+
+    const presence = data.presences[jid]
+
+    if(!presence) return
+
+    const status = presence.lastKnownPresence
+
+    if(status === "composing"){
+
+        const numero = jid.split("@")[0]
+
+        try{
+
+            await fetch(
+                "https://www.capleads.com.br/whatsapp/digitando",
+                {
+                    method:"POST",
+                    headers:{
+                        "Content-Type":"application/json"
+                    },
+                    body:JSON.stringify({
+                        numero
+                    })
+                }
+            )
+
+        }catch(e){
+
+            console.log("Erro digitando:",e)
+
+        }
+
+    }
+
+})
+
+
     /**
      * ==========================================
      * EVENTO MENSAGEM RECEBIDA
@@ -330,6 +378,7 @@ app.listen(PORT, ()=>{
     console.log("🚀 Connector WhatsApp rodando na porta", PORT)
 
 })
+
 
 
 
