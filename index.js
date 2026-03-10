@@ -323,69 +323,77 @@ function extrairTexto(msg){
     ==========================================
     */
 
-    sock.ev.on("messages.upsert", async ({messages,type})=>{
+sock.ev.on("messages.upsert", async ({ messages, type }) => {
 
-        if(type!=="notify") return
+    if (type !== "notify") return
 
-        const msg = messages?.[0]
+    const msg = messages?.[0]
 
-        if(!msg) return
-        if(msg.key?.fromMe) return
+    if (!msg) return
 
-        const content =
-            msg.message?.ephemeralMessage?.message ||
-            msg.message
+    // 🔒 ignora mensagens enviadas por nós
+    if (msg.key?.fromMe) return
 
-        if(!content) return
+    // 🔒 ignora grupos
+    if (msg.key?.remoteJid?.includes("@g.us")) return
 
-        const id = msg.key?.id
+    // 🔒 ignora broadcast
+    if (msg.key?.remoteJid?.includes("@broadcast")) return
 
-        if(id && mensagensProcessadas.has(id)) return
+    const content =
+        msg.message?.ephemeralMessage?.message ||
+        msg.message
 
-        if(id) mensagensProcessadas.add(id)
+    if (!content) return
 
-        if(mensagensProcessadas.size>5000)
-            mensagensProcessadas.clear()
+    const id = msg.key?.id
 
-        const numero = extrairNumero(msg)
+    // 🔒 evita processamento duplicado
+    if (id && mensagensProcessadas.has(id)) return
 
-        if(!numero) return
+    if (id) mensagensProcessadas.add(id)
 
-        const texto =
-            extrairTexto({message:content})
+    // 🔒 controle de memória
+    if (mensagensProcessadas.size > 2000) {
+        mensagensProcessadas.clear()
+    }
 
-        if(!texto) return
+    const numero = extrairNumero(msg)
 
-        console.log("Mensagem empresa",empresa_id)
-        console.log(numero,texto)
+    if (!numero) return
 
-        try{
+    const texto = extrairTexto({ message: content })
 
-            await fetch(
-                "https://www.capleads.com.br/whatsapp/receive",
-                {
-                    method:"POST",
-                    headers:{
-                        "Content-Type":"application/json"
-                    },
-                    body:JSON.stringify({
-                        empresa_id,
-                        numero,
-                        mensagem:texto,
-                        origem:"cliente"
-                    })
-                }
-            )
+    if (!texto) return
 
-        }catch(e){
+    console.log("📩 Mensagem recebida empresa", empresa_id)
+    console.log(numero, texto)
 
-            console.log("Erro webhook:",e)
+    try {
 
-        }
+        await fetch(
+            "https://www.capleads.com.br/whatsapp/receive",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    empresa_id,
+                    numero,
+                    mensagem: texto,
+                    origem: "cliente"
+                })
+            }
+        )
 
-    })
+    } catch (e) {
 
-}
+        console.log("❌ Erro webhook:", e)
+
+    }
+
+})
 
 /*
 ==========================================
@@ -757,6 +765,7 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
 
