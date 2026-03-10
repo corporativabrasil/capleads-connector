@@ -14,7 +14,6 @@ import makeWASocket, {
 const app = express()
 app.use(express.json())
 
-
 /*
 ==========================================
 ARMAZENA SESSÕES POR EMPRESA
@@ -22,7 +21,6 @@ ARMAZENA SESSÕES POR EMPRESA
 */
 
 const sessoes = {}
-
 const mensagensProcessadas = new Set()
 
 /*
@@ -76,7 +74,6 @@ function extrairTexto(msg){
     )
 }
 
-   
 /*
 ==========================================
 CRIAR SESSÃO WHATSAPP
@@ -109,30 +106,24 @@ async function iniciarSessao(empresa_id){
         await fetchLatestBaileysVersion()
 
     const sock = makeWASocket({
-
         auth: state,
         version,
-
         browser:["CapLeads","Chrome","1.0"],
-
         markOnlineOnConnect:false,
         syncFullHistory:false,
-
         connectTimeoutMs:60000,
         defaultQueryTimeoutMs:60000
-
     })
 
     sessoes[empresa_id] = {
-        sock: sock,
-        qr: null,
-        conectado: false
+        sock,
+        qr:null,
+        conectado:false
     }
 
     sock.ev.on("creds.update", saveCreds)
 
     console.log("✅ Socket criado empresa",empresa_id)
-
 
     /*
     ==========================================
@@ -143,13 +134,6 @@ async function iniciarSessao(empresa_id){
     sock.ev.on("connection.update", async(update)=>{
 
         const {connection,qr,lastDisconnect} = update
-
-
-        /*
-        ==========================================
-        QR CODE
-        ==========================================
-        */
 
         if(qr){
 
@@ -170,13 +154,6 @@ async function iniciarSessao(empresa_id){
 
         }
 
-
-        /*
-        ==========================================
-        CONEXÃO ABERTA
-        ==========================================
-        */
-
         if(connection === "open"){
 
             sessoes[empresa_id].qr = null
@@ -185,13 +162,6 @@ async function iniciarSessao(empresa_id){
             console.log("✅ WhatsApp conectado empresa",empresa_id)
 
         }
-
-
-        /*
-        ==========================================
-        CONEXÃO FECHADA
-        ==========================================
-        */
 
         if(connection === "close"){
 
@@ -202,23 +172,16 @@ async function iniciarSessao(empresa_id){
                 statusCode !== DisconnectReason.loggedOut
 
             console.log("⚠️ Conexão fechada empresa",empresa_id)
-            console.log("Motivo:",statusCode)
 
             if(shouldReconnect){
-
-                console.log("🔄 Reconectando empresa",empresa_id)
 
                 delete sessoes[empresa_id]
 
                 setTimeout(()=>{
-
                     iniciarSessao(empresa_id)
-
                 },3000)
 
             }else{
-
-                console.log("🚪 Sessão encerrada empresa",empresa_id)
 
                 delete sessoes[empresa_id]
 
@@ -228,33 +191,97 @@ async function iniciarSessao(empresa_id){
 
     })
 
-}
+    /*
+    ==========================================
+    CLIENTE DIGITANDO
+    ==========================================
+    */
 
+    sock.ev.on("presence.update", async (data)=>{
 
-  /*
-==========================================
-CLIENTE DIGITANDO
-==========================================
-*/
+        const jid = Object.keys(data.presences || {})[0]
+        if(!jid) return
 
-sock.ev.on("presence.update", async (data)=>{
+        const presence = data.presences[jid]
+        if(!presence) return
 
-    const jid = Object.keys(data.presences || {})[0]
+        if(presence.lastKnownPresence==="composing"){
 
-    if(!jid) return
+            const numero = jid.split("@")[0]
 
-    const presence = data.presences[jid]
+            try{
 
-    if(!presence) return
+                await fetch(
+                    "https://www.capleads.com.br/whatsapp/digitando",
+                    {
+                        method:"POST",
+                        headers:{
+                            "Content-Type":"application/json"
+                        },
+                        body:JSON.stringify({
+                            empresa_id,
+                            numero
+                        })
+                    }
+                )
 
-    if(presence.lastKnownPresence==="composing"){
+            }catch(e){
 
-        const numero = jid.split("@")[0]
+                console.log("Erro digitando:",e)
+
+            }
+
+        }
+
+    })
+
+    /*
+    ==========================================
+    MENSAGENS RECEBIDAS
+    ==========================================
+    */
+
+    sock.ev.on("messages.upsert", async ({ messages, type }) => {
+
+        if (type !== "notify") return
+
+        const msg = messages?.[0]
+
+        if (!msg || !msg.message) return
+
+        const jid = msg.key?.remoteJid
+
+        if (msg.key?.fromMe) return
+        if (jid && jid.includes("@g.us")) return
+        if (jid && jid.includes("@broadcast")) return
+        if (jid === "status@broadcast") return
+
+        const content =
+            msg.message?.ephemeralMessage?.message ||
+            msg.message
+
+        if (!content) return
+
+        const id = msg.key?.id
+
+        if (id && mensagensProcessadas.has(id)) return
+        if (id) mensagensProcessadas.add(id)
+
+        if (mensagensProcessadas.size > 2000)
+            mensagensProcessadas.clear()
+
+        const numero = extrairNumero(msg)
+        if (!numero) return
+
+        const texto = extrairTexto({message:content})
+        if (!texto) return
+
+        console.log("📩 Mensagem recebida empresa:",empresa_id)
 
         try{
 
             await fetch(
-                "https://www.capleads.com.br/whatsapp/digitando",
+                "https://www.capleads.com.br/whatsapp/receive",
                 {
                     method:"POST",
                     headers:{
@@ -262,106 +289,22 @@ sock.ev.on("presence.update", async (data)=>{
                     },
                     body:JSON.stringify({
                         empresa_id,
-                        numero
+                        numero,
+                        mensagem:texto,
+                        origem:"cliente"
                     })
                 }
             )
 
         }catch(e){
 
-            console.log("Erro digitando:",e)
+            console.log("Erro webhook:",e)
 
         }
 
-    }
+    })
 
-})
-
-
-
-/*
-==========================================
-MENSAGENS RECEBIDAS
-==========================================
-*/
-
-sock.ev.on("messages.upsert", async ({ messages, type }) => {
-
-    if (type !== "notify") return
-
-    const msg = messages?.[0]
-
-    if (!msg) return
-    if (!msg.message) return
-
-    const jid = msg.key?.remoteJid
-
-    if (msg.key?.fromMe) return
-    if (jid && jid.includes("@g.us")) return
-    if (jid && jid.includes("@broadcast")) return
-    if (jid === "status@broadcast") return
-
-
-    const content =
-        msg.message?.ephemeralMessage?.message ||
-        msg.message
-
-    if (!content) return
-
-
-    const id = msg.key?.id
-
-    if (id && mensagensProcessadas.has(id)) return
-
-    if (id) mensagensProcessadas.add(id)
-
-    if (mensagensProcessadas.size > 2000) {
-        mensagensProcessadas.clear()
-    }
-
-
-    const numero = extrairNumero(msg)
-
-    if (!numero) return
-
-
-    const texto = extrairTexto({ message: content })
-
-    if (!texto) return
-
-
-    console.log("📩 Mensagem recebida empresa:", empresa_id)
-    console.log("📞 Numero:", numero)
-    console.log("💬 Texto:", texto)
-
-
-    try {
-
-        await fetch(
-            "https://www.capleads.com.br/whatsapp/receive",
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json"
-                },
-                body: JSON.stringify({
-                    empresa_id,
-                    numero,
-                    mensagem: texto,
-                    origem: "cliente"
-                })
-            }
-        )
-
-        console.log("✅ Webhook enviado")
-
-    } catch (e) {
-
-        console.log("❌ Erro webhook:", e)
-
-    }
-
-})
+}
 
 /*
 ==========================================
@@ -387,7 +330,7 @@ async function garantirSessao(empresa_id){
 
 /*
 ==========================================
-INICIAR SESSÃO (CONNECT)
+CONNECT
 ==========================================
 */
 
@@ -396,9 +339,7 @@ app.post("/connect", async (req,res)=>{
     const {empresa_id} = req.body
 
     if(!empresa_id){
-        return res.status(400).json({
-            erro:"empresa_id obrigatório"
-        })
+        return res.status(400).json({erro:"empresa_id obrigatório"})
     }
 
     try{
@@ -412,11 +353,7 @@ app.post("/connect", async (req,res)=>{
 
     }catch(e){
 
-        console.log("Erro iniciar sessão:",e)
-
-        res.status(500).json({
-            erro:"erro iniciar sessão"
-        })
+        res.status(500).json({erro:"erro iniciar sessão"})
 
     }
 
@@ -424,94 +361,31 @@ app.post("/connect", async (req,res)=>{
 
 /*
 ==========================================
-CONNECT VIA GET (PARA TESTE NO NAVEGADOR)
-==========================================
-*/
-
-app.get("/connect", async (req,res)=>{
-
-    const empresa_id = req.query.empresa_id
-
-    if(!empresa_id){
-        return res.json({
-            erro:"empresa_id obrigatório"
-        })
-    }
-
-    try{
-
-        await garantirSessao(empresa_id)
-
-        res.json({
-            status:"iniciando sessão",
-            empresa_id
-        })
-
-    }catch(e){
-
-        console.log("Erro iniciar sessão:",e)
-
-        res.json({
-            erro:"erro iniciar sessão"
-        })
-
-    }
-
-})
-
-/*
-==========================================
-QR CODE DA EMPRESA
+QR CODE
 ==========================================
 */
 
 app.get("/qr", async (req,res)=>{
 
-    try{
+    const empresa_id = String(req.query.empresa_id || "")
 
-        const empresa_id = String(req.query.empresa_id || "")
+    if(!empresa_id)
+        return res.json({qr:null,connected:false})
 
-        if(!empresa_id){
+    await garantirSessao(empresa_id)
 
-            return res.json({
-                qr:null,
-                connected:false
-            })
-        }
+    const sessao = sessoes[empresa_id]
 
-        await garantirSessao(empresa_id)
-
-        const sessao = sessoes[empresa_id]
-
-        if(!sessao){
-
-            return res.json({
-                qr:null,
-                connected:false
-            })
-        }
-
-        res.json({
-            qr: sessao.qr || null,
-            connected: sessao.conectado || false
-        })
-
-    }catch(e){
-
-        console.log("Erro ao obter QR:",e)
-
-        res.json({
-            qr:null,
-            connected:false
-        })
-
-    }
+    res.json({
+        qr:sessao?.qr || null,
+        connected:sessao?.conectado || false
+    })
 
 })
 
 /*
 ==========================================
-STATUS WHATSAPP
+STATUS
 ==========================================
 */
 
@@ -519,16 +393,15 @@ app.get("/status", async (req,res)=>{
 
     const empresa_id = String(req.query.empresa_id || "")
 
-    if(!empresa_id){
-        return res.json({ connected:false })
-    }
+    if(!empresa_id)
+        return res.json({connected:false})
 
     await garantirSessao(empresa_id)
 
     const sessao = sessoes[empresa_id]
 
     res.json({
-        connected: sessao?.conectado || false
+        connected:sessao?.conectado || false
     })
 
 })
@@ -541,76 +414,38 @@ ENVIAR MENSAGEM
 
 app.post("/send", async (req,res)=>{
 
-    const {empresa_id, numero, mensagem} = req.body
+    const {empresa_id,numero,mensagem} = req.body
 
-    if(!empresa_id || !numero || !mensagem){
-
-        return res.status(400).json({
-            erro:"dados inválidos"
-        })
-
-    }
+    if(!empresa_id || !numero || !mensagem)
+        return res.status(400).json({erro:"dados inválidos"})
 
     const sessao = sessoes[empresa_id]
 
-    if(!sessao || !sessao.sock){
+    if(!sessao || !sessao.sock)
+        return res.status(400).json({erro:"sessão não encontrada"})
 
-        return res.status(400).json({
-            erro:"sessão não encontrada"
-        })
-
-    }
-
-    if(!sessao.conectado){
-
-        return res.status(400).json({
-            erro:"whatsapp não conectado"
-        })
-
-    }
+    if(!sessao.conectado)
+        return res.status(400).json({erro:"whatsapp não conectado"})
 
     try{
-
-        /*
-        ==========================================
-        NORMALIZA NÚMERO
-        ==========================================
-        */
 
         let numeroLimpo = numero.replace(/\D/g,"")
 
         let jid = numeroLimpo
 
-        if(!jid.includes("@s.whatsapp.net")){
-            jid = numeroLimpo + "@s.whatsapp.net"
-        }
-
-        console.log("📤 Enviando mensagem empresa",empresa_id)
-        console.log("Para:",jid)
-        console.log("Texto:",mensagem)
-
-        /*
-        ==========================================
-        ENVIO
-        ==========================================
-        */
+        if(!jid.includes("@s.whatsapp.net"))
+            jid = numeroLimpo+"@s.whatsapp.net"
 
         await sessao.sock.sendMessage(
             jid,
-            { text: mensagem }
+            {text:mensagem}
         )
 
-        res.json({
-            status:"ok"
-        })
+        res.json({status:"ok"})
 
     }catch(e){
 
-        console.log("❌ Erro envio:",e)
-
-        res.status(500).json({
-            erro:"erro envio"
-        })
+        res.status(500).json({erro:"erro envio"})
 
     }
 
@@ -618,67 +453,7 @@ app.post("/send", async (req,res)=>{
 
 /*
 ==========================================
-LOGOUT / DESCONECTAR EMPRESA
-==========================================
-*/
-
-app.post("/logout", async (req,res)=>{
-
-    const {empresa_id} = req.body
-
-    if(!empresa_id){
-
-        return res.status(400).json({
-            erro:"empresa_id obrigatório"
-        })
-
-    }
-
-    try{
-
-        const sessao = sessoes[empresa_id]
-
-        if(sessao && sessao.sock){
-
-            await sessao.sock.logout()
-
-        }
-
-        const authPath =
-            path.resolve("./data/session_"+empresa_id)
-
-        if(fs.existsSync(authPath)){
-
-            fs.rmSync(authPath,{
-                recursive:true,
-                force:true
-            })
-
-        }
-
-        delete sessoes[empresa_id]
-
-        res.json({
-            ok:true
-        })
-
-    }catch(e){
-
-        console.log("Erro logout:",e)
-
-        res.status(500).json({
-            erro:"erro logout"
-        })
-
-    }
-
-})
-
-
-
-/*
-==========================================
-AUTO RECONECTAR SESSÕES AO INICIAR
+RESTAURAR SESSÕES
 ==========================================
 */
 
@@ -688,11 +463,8 @@ function restaurarSessoes(){
 
     if(!fs.existsSync(pasta)){
         fs.mkdirSync(pasta,{recursive:true})
-        console.log("📁 pasta data criada")
         return
     }
-
-    if(!fs.existsSync(pasta)) return
 
     const dirs = fs.readdirSync(pasta)
 
@@ -703,10 +475,7 @@ function restaurarSessoes(){
             const empresa_id =
                 dir.replace("session_","")
 
-            console.log(
-                "Restaurando sessão empresa",
-                empresa_id
-            )
+            console.log("Restaurando sessão empresa",empresa_id)
 
             iniciarSessao(empresa_id)
 
@@ -715,8 +484,6 @@ function restaurarSessoes(){
     })
 
 }
-
-
 
 /*
 ==========================================
