@@ -317,11 +317,11 @@ function extrairTexto(msg){
     })
 
 
-    /*
-    ==========================================
-    MENSAGENS RECEBIDAS
-    ==========================================
-    */
+/*
+==========================================
+MENSAGENS RECEBIDAS
+==========================================
+*/
 
 sock.ev.on("messages.upsert", async ({ messages, type }) => {
 
@@ -330,21 +330,29 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
     const msg = messages?.[0]
 
     if (!msg) return
+    if (!msg.message) return
 
-    // 🔒 ignora mensagens enviadas por nós
+    const jid = msg.key?.remoteJid
+
+    // 🔒 ignora mensagens enviadas pelo próprio sistema
     if (msg.key?.fromMe) return
 
     // 🔒 ignora grupos
-    if (msg.key?.remoteJid?.includes("@g.us")) return
+    if (jid && jid.includes("@g.us")) return
 
     // 🔒 ignora broadcast
-    if (msg.key?.remoteJid?.includes("@broadcast")) return
+    if (jid && jid.includes("@broadcast")) return
+
+    // 🔒 ignora status
+    if (jid === "status@broadcast") return
+
 
     const content =
         msg.message?.ephemeralMessage?.message ||
         msg.message
 
     if (!content) return
+
 
     const id = msg.key?.id
 
@@ -358,16 +366,30 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
         mensagensProcessadas.clear()
     }
 
+
     const numero = extrairNumero(msg)
 
     if (!numero) return
+
 
     const texto = extrairTexto({ message: content })
 
     if (!texto) return
 
-    console.log("📩 Mensagem recebida empresa", empresa_id)
-    console.log(numero, texto)
+
+    console.log("📩 Mensagem recebida empresa:", empresa_id)
+    console.log("📞 Numero:", numero)
+    console.log("💬 Texto:", texto)
+
+
+    // 🔒 garante que empresa_id exista
+    if (!empresa_id) {
+
+        console.log("❌ empresa_id não definido")
+
+        return
+    }
+
 
     try {
 
@@ -379,13 +401,15 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    empresa_id,
-                    numero,
+                    empresa_id: empresa_id,
+                    numero: numero,
                     mensagem: texto,
                     origem: "cliente"
                 })
             }
         )
+
+        console.log("✅ Webhook enviado para CRM")
 
     } catch (e) {
 
@@ -765,6 +789,7 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
 
