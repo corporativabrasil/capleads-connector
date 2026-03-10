@@ -77,8 +77,7 @@ function extrairTexto(msg){
 }
 
    
-    /*
-  /*
+/*
 ==========================================
 CRIAR SESSÃO WHATSAPP
 ==========================================
@@ -86,263 +85,198 @@ CRIAR SESSÃO WHATSAPP
 
 async function iniciarSessao(empresa_id){
 
-    /*
-    ==========================================
-    NORMALIZA EMPRESA_ID
-    ==========================================
-    */
-
     empresa_id = String(empresa_id)
 
-    /*
-    ==========================================
-    EVITA DUPLICAR SESSÃO
-    ==========================================
-    */
-
     if (sessoes[empresa_id] && sessoes[empresa_id].sock) {
-
         console.log("⚠️ Sessão já existe:", empresa_id)
         return
     }
 
     console.log("🚀 Iniciando sessão empresa", empresa_id)
 
-    /*
-    ==========================================
-    GARANTE PASTA DATA
-    ==========================================
-    */
-
-    const base = path.resolve("./data")
+    const base = "./data"
 
     if (!fs.existsSync(base)) {
-
-        fs.mkdirSync(base, { recursive: true })
-
-        console.log("📁 pasta data criada")
+        fs.mkdirSync(base,{recursive:true})
     }
 
-    /*
-    ==========================================
-    PASTA DA SESSÃO
-    ==========================================
-    */
-
-    const pasta = path.resolve(base, "session_" + empresa_id)
-
-    if (!fs.existsSync(pasta)) {
-
-        fs.mkdirSync(pasta, { recursive: true })
-
-    }
-
-    /*
-    ==========================================
-    AUTH STATE
-    ==========================================
-    */
+    const pasta = base + "/session_" + empresa_id
 
     const { state, saveCreds } =
         await useMultiFileAuthState(pasta)
 
-    /*
-    ==========================================
-    VERSÃO BAILEYS
-    ==========================================
-    */
-
     const { version } =
         await fetchLatestBaileysVersion()
-
-    /*
-    ==========================================
-    CRIAR SOCKET
-    ==========================================
-    */
 
     const sock = makeWASocket({
 
         auth: state,
-
         version,
 
-        browser: ["CapLeads", "Chrome", "1.0"],
+        browser:["CapLeads","Chrome","1.0"],
 
-        markOnlineOnConnect: false,
+        markOnlineOnConnect:false,
+        syncFullHistory:false,
 
-        syncFullHistory: false,
-
-        connectTimeoutMs: 60000,
-
-        defaultQueryTimeoutMs: 60000
+        connectTimeoutMs:60000,
+        defaultQueryTimeoutMs:60000
 
     })
 
-    /*
-    ==========================================
-    SALVA SESSÃO NA MEMÓRIA
-    ==========================================
-    */
-
     sessoes[empresa_id] = {
-
         sock: sock,
-
         qr: null,
-
         conectado: false
-
     }
-
-    /*
-    ==========================================
-    SALVAR CREDENCIAIS
-    ==========================================
-    */
 
     sock.ev.on("creds.update", saveCreds)
 
-    console.log("✅ Socket criado empresa", empresa_id)
+    console.log("✅ Socket criado empresa",empresa_id)
 
-}
 
-        /*
     /*
     ==========================================
     STATUS DA CONEXÃO
     ==========================================
     */
-    
-    sock.ev.on("connection.update", async (update)=>{
-    
-        const { connection, qr, lastDisconnect } = update
-    
+
+    sock.ev.on("connection.update", async(update)=>{
+
+        const {connection,qr,lastDisconnect} = update
+
+
         /*
         ==========================================
-        QR CODE GERADO
+        QR CODE
         ==========================================
         */
-    
+
         if(qr){
-    
+
             try{
-    
-                sessoes[empresa_id].qr = await qrcode.toDataURL(qr)
+
+                sessoes[empresa_id].qr =
+                    await qrcode.toDataURL(qr)
+
                 sessoes[empresa_id].conectado = false
-    
+
                 console.log("📱 QR gerado empresa",empresa_id)
-    
+
             }catch(e){
-    
+
                 console.log("Erro gerar QR:",e)
-    
+
             }
-    
+
         }
-    
+
+
         /*
         ==========================================
         CONEXÃO ABERTA
         ==========================================
         */
-    
+
         if(connection === "open"){
-    
+
             sessoes[empresa_id].qr = null
             sessoes[empresa_id].conectado = true
-    
+
             console.log("✅ WhatsApp conectado empresa",empresa_id)
-    
+
         }
-    
+
+
         /*
         ==========================================
         CONEXÃO FECHADA
         ==========================================
         */
-    
+
         if(connection === "close"){
-        
+
             const statusCode =
                 new Boom(lastDisconnect?.error)?.output?.statusCode
-        
+
             const shouldReconnect =
                 statusCode !== DisconnectReason.loggedOut
-        
+
             console.log("⚠️ Conexão fechada empresa",empresa_id)
             console.log("Motivo:",statusCode)
-        
+
             if(shouldReconnect){
-        
+
                 console.log("🔄 Reconectando empresa",empresa_id)
-        
-                // remove a sessão atual da memória
+
                 delete sessoes[empresa_id]
-        
+
                 setTimeout(()=>{
-        
+
                     iniciarSessao(empresa_id)
-        
+
                 },3000)
-        
+
             }else{
-        
+
                 console.log("🚪 Sessão encerrada empresa",empresa_id)
-        
+
                 delete sessoes[empresa_id]
-        
-            }
-        
-        }    
-    })
-
-
-    /*
-    ==========================================
-    CLIENTE DIGITANDO
-    ==========================================
-    */
-
-    sock.ev.on("presence.update", async (data)=>{
-
-        const jid = Object.keys(data.presences || {})[0]
-
-        if(!jid) return
-
-        const presence = data.presences[jid]
-
-        if(!presence) return
-
-        if(presence.lastKnownPresence==="composing"){
-
-            const numero = jid.split("@")[0]
-
-            try{
-
-                await fetch(
-                    "https://www.capleads.com.br/whatsapp/digitando",
-                    {
-                        method:"POST",
-                        headers:{
-                            "Content-Type":"application/json"
-                        },
-                        body:JSON.stringify({
-                            empresa_id,
-                            numero
-                        })
-                    }
-                )
-
-            }catch(e){
-
-                console.log("Erro digitando:",e)
 
             }
 
         }
 
     })
+
+}
+
+
+  /*
+==========================================
+CLIENTE DIGITANDO
+==========================================
+*/
+
+sock.ev.on("presence.update", async (data)=>{
+
+    const jid = Object.keys(data.presences || {})[0]
+
+    if(!jid) return
+
+    const presence = data.presences[jid]
+
+    if(!presence) return
+
+    if(presence.lastKnownPresence==="composing"){
+
+        const numero = jid.split("@")[0]
+
+        try{
+
+            await fetch(
+                "https://www.capleads.com.br/whatsapp/digitando",
+                {
+                    method:"POST",
+                    headers:{
+                        "Content-Type":"application/json"
+                    },
+                    body:JSON.stringify({
+                        empresa_id,
+                        numero
+                    })
+                }
+            )
+
+        }catch(e){
+
+            console.log("Erro digitando:",e)
+
+        }
+
+    }
+
+})
+
 
 
 /*
@@ -362,16 +296,9 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
 
     const jid = msg.key?.remoteJid
 
-    // 🔒 ignora mensagens enviadas pelo próprio sistema
     if (msg.key?.fromMe) return
-
-    // 🔒 ignora grupos
     if (jid && jid.includes("@g.us")) return
-
-    // 🔒 ignora broadcast
     if (jid && jid.includes("@broadcast")) return
-
-    // 🔒 ignora status
     if (jid === "status@broadcast") return
 
 
@@ -384,12 +311,10 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
 
     const id = msg.key?.id
 
-    // 🔒 evita processamento duplicado
     if (id && mensagensProcessadas.has(id)) return
 
     if (id) mensagensProcessadas.add(id)
 
-    // 🔒 controle de memória
     if (mensagensProcessadas.size > 2000) {
         mensagensProcessadas.clear()
     }
@@ -410,15 +335,6 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
     console.log("💬 Texto:", texto)
 
 
-    // 🔒 garante que empresa_id exista
-    if (!empresa_id) {
-
-        console.log("❌ empresa_id não definido")
-
-        return
-    }
-
-
     try {
 
         await fetch(
@@ -429,15 +345,15 @@ sock.ev.on("messages.upsert", async ({ messages, type }) => {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    empresa_id: empresa_id,
-                    numero: numero,
+                    empresa_id,
+                    numero,
                     mensagem: texto,
                     origem: "cliente"
                 })
             }
         )
 
-        console.log("✅ Webhook enviado para CRM")
+        console.log("✅ Webhook enviado")
 
     } catch (e) {
 
@@ -817,6 +733,7 @@ app.listen(PORT,()=>{
     restaurarSessoes()
 
 })
+
 
 
 
