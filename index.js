@@ -12,7 +12,7 @@ import makeWASocket, {
 } from "@whiskeysockets/baileys"
 
 const app = express()
-app.use(express.json())
+app.use(express.json({ limit: "8mb" }))
 
 /*
 ==========================================
@@ -697,11 +697,40 @@ app.post("/send", async (req, res) => {
         String(req.body?.mensagem || "")
             .trim()
 
-    if (!empresa_id || !numero || !mensagem)
+    const imagem_base64 =
+        String(req.body?.imagem_base64 || "")
+            .trim()
+
+    const imagem_mime =
+        String(req.body?.imagem_mime || "")
+            .trim()
+            .toLowerCase()
+
+    const mimesPermitidos = new Set([
+        "image/jpeg",
+        "image/png",
+        "image/webp"
+    ])
+
+    if (!empresa_id || !numero || (!mensagem && !imagem_base64))
         return res.status(400).json({
             status: "erro",
             erro: "dados inválidos"
         })
+
+    if (imagem_base64 && !mimesPermitidos.has(imagem_mime)) {
+        return res.status(400).json({
+            status: "erro",
+            erro: "tipo de imagem não permitido"
+        })
+    }
+
+    if (imagem_base64 && imagem_base64.length > 7_000_000) {
+        return res.status(413).json({
+            status: "erro",
+            erro: "imagem muito grande"
+        })
+    }
 
     try {
 
@@ -729,12 +758,48 @@ app.post("/send", async (req, res) => {
         const jid =
             numero + "@s.whatsapp.net"
 
+        let conteudoMensagem
+
+        if (imagem_base64) {
+            let bufferImagem
+
+            try {
+                bufferImagem = Buffer.from(
+                    imagem_base64,
+                    "base64"
+                )
+            } catch (e) {
+                return res.status(400).json({
+                    status: "erro",
+                    erro: "imagem base64 inválida"
+                })
+            }
+
+            if (!bufferImagem?.length) {
+                return res.status(400).json({
+                    status: "erro",
+                    erro: "imagem vazia"
+                })
+            }
+
+            conteudoMensagem = {
+                image: bufferImagem,
+                mimetype: imagem_mime
+            }
+
+            if (mensagem) {
+                conteudoMensagem.caption = mensagem
+            }
+        } else {
+            conteudoMensagem = {
+                text: mensagem
+            }
+        }
+
         const resultado =
             await sessao.sock.sendMessage(
                 jid,
-                {
-                    text: mensagem
-                }
+                conteudoMensagem
             )
 
         console.log(
