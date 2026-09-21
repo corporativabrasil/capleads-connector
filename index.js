@@ -513,6 +513,97 @@ async function iniciarSessao(empresa_id) {
 
         }
     )
+    /*
+    ==========================================
+    STATUS DE ENTREGA / LEITURA
+    ==========================================
+    */
+
+    async function enviarReceiptCapLeads(messageId, status) {
+        if (!messageId || !status) return
+
+        try {
+            const resposta = await fetch(
+                CAPLEADS_BASE_URL + "/whatsapp-campanhas/receipt",
+                {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    },
+                    body: JSON.stringify({
+                        empresa_id: Number(empresa_id),
+                        message_id: String(messageId),
+                        status
+                    })
+                }
+            )
+
+            if (!resposta.ok) {
+                const detalhe = await resposta.text()
+                console.log(
+                    "⚠️ Receipt CapLeads retornou",
+                    resposta.status,
+                    detalhe
+                )
+            }
+        } catch (e) {
+            console.log("Erro receipt CapLeads:", e)
+        }
+    }
+
+    sock.ev.on(
+        "messages.update",
+        async (updates) => {
+            for (const item of updates || []) {
+                const id = item?.key?.id
+                if (!id) continue
+
+                const status = item?.update?.status
+
+                if (status === 3) {
+                    await enviarReceiptCapLeads(
+                        id,
+                        "entregue"
+                    )
+                } else if (
+                    status === 4 ||
+                    status === 5
+                ) {
+                    await enviarReceiptCapLeads(
+                        id,
+                        "lido"
+                    )
+                }
+            }
+        }
+    )
+
+    sock.ev.on(
+        "message-receipt.update",
+        async (updates) => {
+            for (const item of updates || []) {
+                const id = item?.key?.id
+                const receipt = item?.receipt
+
+                if (!id || !receipt) continue
+
+                if (receipt.readTimestamp) {
+                    await enviarReceiptCapLeads(
+                        id,
+                        "lido"
+                    )
+                } else if (
+                    receipt.receiptTimestamp ||
+                    receipt.deliveredTimestamp
+                ) {
+                    await enviarReceiptCapLeads(
+                        id,
+                        "entregue"
+                    )
+                }
+            }
+        }
+    )
 
     return sessoes[empresa_id]
 }
