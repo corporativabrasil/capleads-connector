@@ -172,19 +172,63 @@ EXTRAIR TEXTO
 ==========================================
 */
 
+function desembrulharMensagem(message) {
+
+    let atual = message
+
+    for (let i = 0; i < 5 && atual; i++) {
+
+        if (atual.ephemeralMessage?.message) {
+            atual = atual.ephemeralMessage.message
+            continue
+        }
+
+        if (atual.viewOnceMessage?.message) {
+            atual = atual.viewOnceMessage.message
+            continue
+        }
+
+        if (atual.viewOnceMessageV2?.message) {
+            atual = atual.viewOnceMessageV2.message
+            continue
+        }
+
+        if (atual.viewOnceMessageV2Extension?.message) {
+            atual = atual.viewOnceMessageV2Extension.message
+            continue
+        }
+
+        if (atual.documentWithCaptionMessage?.message) {
+            atual = atual.documentWithCaptionMessage.message
+            continue
+        }
+
+        break
+    }
+
+    return atual
+}
+
+
 function extrairTexto(msg) {
 
+    const message =
+        desembrulharMensagem(msg.message)
+
     return (
-        msg.message?.conversation ||
-        msg.message?.extendedTextMessage?.text ||
-        msg.message?.imageMessage?.caption ||
-        msg.message?.videoMessage?.caption ||
-        msg.message?.buttonsResponseMessage?.selectedButtonId ||
-        msg.message?.listResponseMessage?.title ||
-        msg.message?.templateButtonReplyMessage?.selectedId ||
+        message?.conversation ||
+        message?.extendedTextMessage?.text ||
+        message?.imageMessage?.caption ||
+        message?.videoMessage?.caption ||
+        message?.documentMessage?.caption ||
+        message?.buttonsResponseMessage?.selectedButtonId ||
+        message?.listResponseMessage?.title ||
+        message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
+        message?.templateButtonReplyMessage?.selectedId ||
         ""
     )
 }
+
 
 /*
 ==========================================
@@ -423,7 +467,7 @@ async function iniciarSessao(empresa_id) {
 
     async function encaminharMensagemRecebida(msg) {
 
-        if (!msg || !msg.message) return
+        if (!msg || !msg.key) return
 
         const jid = msg.key?.remoteJid
 
@@ -432,9 +476,14 @@ async function iniciarSessao(empresa_id) {
         if (jid && jid.includes("@broadcast")) return
         if (jid === "status@broadcast") return
 
+        /*
+        Um primeiro evento pode chegar sem conteúdo útil e ser completado
+        depois pelo Baileys. Eventos parciais não entram na deduplicação.
+        */
+        if (!msg.message) return
+
         const content =
-            msg.message?.ephemeralMessage?.message ||
-            msg.message
+            desembrulharMensagem(msg.message)
 
         if (!content) return
 
@@ -453,7 +502,15 @@ async function iniciarSessao(empresa_id) {
             message: content
         })
 
-        if (!texto) return
+        if (!texto) {
+            console.log(
+                "⏳ Mensagem ainda sem texto útil empresa:",
+                empresa_id,
+                "id:",
+                id || "-"
+            )
+            return
+        }
 
         console.log(
             "📩 Mensagem recebida empresa:",
@@ -553,6 +610,38 @@ async function iniciarSessao(empresa_id) {
             */
             for (const msg of messages || []) {
                 void encaminharMensagemRecebida(msg)
+            }
+
+        }
+    )
+
+    /*
+    Mensagens que chegam inicialmente incompletas podem ganhar conteúdo
+    em messages.update. Reutilizamos o mesmo pipeline; como a mensagem só
+    é marcada como processada depois que existe texto, a atualização
+    posterior ainda pode chegar ao CapLeads.
+    */
+    sock.ev.on(
+        "messages.update",
+        (updates) => {
+
+            for (const item of updates || []) {
+
+                const mensagemAtualizada = {
+                    key: item?.key,
+                    message: item?.update?.message,
+                    pushName:
+                        item?.update?.pushName || ""
+                }
+
+                if (
+                    mensagemAtualizada.key &&
+                    mensagemAtualizada.message
+                ) {
+                    void encaminharMensagemRecebida(
+                        mensagemAtualizada
+                    )
+                }
             }
 
         }
