@@ -639,7 +639,9 @@ async function garantirSessao(empresa_id) {
         throw new Error("empresa_id inválido")
     }
 
-    if (!sessoes[empresa_id]) {
+    let sessao = sessoes[empresa_id]
+
+    if (!sessao) {
 
         console.log(
             "⚙️ Criando sessão automaticamente:",
@@ -647,10 +649,53 @@ async function garantirSessao(empresa_id) {
         )
 
         await iniciarSessao(empresa_id)
-
+        sessao = sessoes[empresa_id]
     }
 
-    return sessoes[empresa_id]
+    /*
+    Se o socket existe, mas fica sem conexão e sem QR por tempo demais,
+    a inicialização provavelmente travou. Reiniciamos somente o socket,
+    preservando as credenciais da sessão.
+    */
+    if (
+        sessao &&
+        sessao.sock &&
+        !sessao.conectado &&
+        !sessao.qr &&
+        !sessao.reiniciando
+    ) {
+        const idadeMs =
+            Date.now() - Number(sessao.criado_em || 0)
+
+        if (idadeMs >= 12000) {
+
+            console.log(
+                "♻️ Sessão sem conexão/QR. Reiniciando empresa",
+                empresa_id,
+                "idade(ms):",
+                idadeMs
+            )
+
+            sessao.reiniciando = true
+
+            try {
+                await fecharSocket(sessao)
+            } catch (e) {
+                console.log(
+                    "⚠️ Falha fechando socket travado empresa",
+                    empresa_id,
+                    e
+                )
+            }
+
+            delete sessoes[empresa_id]
+
+            await iniciarSessao(empresa_id)
+            sessao = sessoes[empresa_id]
+        }
+    }
+
+    return sessao
 }
 
 /*
