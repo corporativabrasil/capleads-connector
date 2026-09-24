@@ -127,14 +127,29 @@ EXTRAIR NUMERO WHATSAPP
 
 function extrairNumero(msg) {
 
-    if (msg.key?.participant)
-        return msg.key.participant.split("@")[0]
-
+    /*
+    Prioriza sempre o número telefônico real (PN).
+    Em eventos multi-dispositivo o WhatsApp pode fornecer
+    participant/remoteJid em formato @lid; esse identificador
+    não deve ser tratado como número telefônico.
+    */
     if (msg.key?.participantPn)
         return msg.key.participantPn.split("@")[0]
 
     if (msg.key?.senderPn)
         return msg.key.senderPn.split("@")[0]
+
+    if (msg.key?.participant) {
+
+        const participant = msg.key.participant
+
+        if (
+            !participant.includes("@lid") &&
+            !participant.includes("@g.us")
+        ) {
+            return participant.split("@")[0]
+        }
+    }
 
     if (msg.key?.remoteJid) {
 
@@ -480,7 +495,9 @@ async function iniciarSessao(empresa_id) {
                             empresa_id: Number(empresa_id),
                             numero,
                             mensagem: texto,
-                            origem: "cliente"
+                            origem: "cliente",
+                            nome_whatsapp:
+                                String(msg.pushName || "").trim()
                         })
                     }
                 )
