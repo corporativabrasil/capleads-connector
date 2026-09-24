@@ -129,9 +129,9 @@ function extrairNumero(msg) {
 
     /*
     Prioriza sempre o número telefônico real (PN).
-    Em eventos multi-dispositivo o WhatsApp pode fornecer
+    Em eventos multi-dispositivo o WhatsApp pode também fornecer
     participant/remoteJid em formato @lid; esse identificador
-    não deve ser tratado como número telefônico.
+    não deve ser usado como número telefônico.
     */
     if (msg.key?.participantPn)
         return msg.key.participantPn.split("@")[0]
