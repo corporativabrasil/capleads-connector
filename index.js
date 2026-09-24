@@ -421,127 +421,64 @@ async function iniciarSessao(empresa_id) {
     ==========================================
     */
 
-    sock.ev.on(
-        "messages.upsert",
-        async ({ messages, type }) => {
+    async function encaminharMensagemRecebida(msg) {
 
-            if (type !== "notify") return
+        if (!msg || !msg.message) return
 
-            const msg = messages?.[0]
+        const jid = msg.key?.remoteJid
 
-            if (!msg || !msg.message) return
+        if (msg.key?.fromMe) return
+        if (jid && jid.includes("@g.us")) return
+        if (jid && jid.includes("@broadcast")) return
+        if (jid === "status@broadcast") return
 
-            const jid = msg.key?.remoteJid
+        const content =
+            msg.message?.ephemeralMessage?.message ||
+            msg.message
 
-            if (msg.key?.fromMe) return
-            if (jid && jid.includes("@g.us")) return
-            if (jid && jid.includes("@broadcast")) return
-            if (jid === "status@broadcast") return
+        if (!content) return
 
-            const content =
-                msg.message?.ephemeralMessage?.message ||
-                msg.message
+        const id = msg.key?.id
+        const chaveProcessada =
+            empresa_id + ":" + String(id || "")
 
-            if (!content) return
+        if (id && mensagensProcessadas.has(chaveProcessada))
+            return
 
-            const id = msg.key?.id
+        const numero = extrairNumero(msg)
+        if (!numero) return
 
-            /*
-            Inclui empresa_id na chave para evitar
-            colisão entre tenants.
-            */
-            const chaveProcessada =
-                empresa_id + ":" + String(id || "")
+        const texto = extrairTexto({
+            ...msg,
+            message: content
+        })
 
-            if (
-                id &&
-                mensagensProcessadas.has(chaveProcessada)
-            ) return
+        if (!texto) return
 
-            if (id) {
-                mensagensProcessadas.add(chaveProcessada)
-            }
+        console.log(
+            "📩 Mensagem recebida empresa:",
+            empresa_id,
+            "numero:",
+            numero
+        )
 
-            if (mensagensProcessadas.size > 2000)
-                mensagensProcessadas.clear()
-
-            const numero = extrairNumero(msg)
-            if (!numero) return
-
-            const texto = extrairTexto({
-                ...msg,
-                message: content
-            })
-
-            if (!texto) return
-
-            console.log(
-                "📩 Mensagem recebida empresa:",
-                empresa_id,
-                "numero:",
-                numero
-            )
-
-            try {
-
-                const resposta = await fetch(
-                    CAPLEADS_BASE_URL + "/whatsapp/receive",
-                    {
-                        method: "POST",
-                        headers: {
-                            "Content-Type": "application/json"
-                        },
-                        body: JSON.stringify({
-                            empresa_id: Number(empresa_id),
-                            numero,
-                            mensagem: texto,
-                            origem: "cliente",
-                            nome_whatsapp:
-                                String(msg.pushName || "").trim()
-                        })
-                    }
-                )
-
-                if (!resposta.ok) {
-
-                    const detalhe =
-                        await resposta.text()
-
-                    console.log(
-                        "❌ Webhook CapLeads retornou",
-                        resposta.status,
-                        detalhe
-                    )
-
-                } else {
-
-                    console.log(
-                        "✅ Webhook enviado ao CapLeads empresa",
-                        empresa_id
-                    )
-
-                }
-
-            } catch (e) {
-
-                console.log("Erro webhook:", e)
-
-            }
-
+        if (id) {
+            mensagensProcessadas.add(chaveProcessada)
         }
-    )
-    /*
-    ==========================================
-    STATUS DE ENTREGA / LEITURA
-    ==========================================
-    */
 
-    async function enviarReceiptCapLeads(messageId, status) {
-        if (!messageId || !status) return
+        if (mensagensProcessadas.size > 2000)
+            mensagensProcessadas.clear()
+
+        const controller = new AbortController()
+        const timeout = setTimeout(
+            () => controller.abort(),
+            30000
+        )
 
         try {
+
             const resposta = await fetch(
-                CAPLEADS_BASE_URL + "/whatsapp-campanhas/receipt",
+                CAPLEADS_BASE_URL + "/whatsapp/receive",
                 {
                     method: "POST",
                     headers: {
@@ -549,108 +486,77 @@ async function iniciarSessao(empresa_id) {
                     },
                     body: JSON.stringify({
                         empresa_id: Number(empresa_id),
-                        message_id: String(messageId),
-                        status
-                    })
+                        numero,
+                        mensagem: texto,
+                        origem: "cliente",
+                        nome_whatsapp:
+                            String(msg.pushName || "").trim()
+                    }),
+                    signal: controller.signal
                 }
             )
 
             if (!resposta.ok) {
-                const detalhe = await resposta.text()
+
+                if (id) {
+                    mensagensProcessadas.delete(chaveProcessada)
+                }
+
+                const detalhe =
+                    await resposta.text()
+
                 console.log(
-                    "⚠️ Receipt CapLeads retornou",
+                    "❌ Webhook CapLeads retornou",
                     resposta.status,
                     detalhe
                 )
+
+            } else {
+
+                console.log(
+                    "✅ Webhook enviado ao CapLeads empresa",
+                    empresa_id
+                )
+
             }
+
         } catch (e) {
-            console.log("Erro receipt CapLeads:", e)
+
+            if (id) {
+                mensagensProcessadas.delete(chaveProcessada)
+            }
+
+            console.log(
+                e?.name === "AbortError"
+                    ? "⏱️ Timeout webhook CapLeads"
+                    : "Erro webhook:",
+                e
+            )
+
+        } finally {
+
+            clearTimeout(timeout)
+
         }
     }
 
     sock.ev.on(
-        "messages.update",
-        async (updates) => {
-            for (const item of updates || []) {
-                const id = item?.key?.id
-                if (!id) continue
+        "messages.upsert",
+        ({ messages, type }) => {
 
-                const status = item?.update?.status
+            if (type !== "notify") return
 
-                if (status === 3) {
-                    await enviarReceiptCapLeads(
-                        id,
-                        "entregue"
-                    )
-                } else if (
-                    status === 4 ||
-                    status === 5
-                ) {
-                    await enviarReceiptCapLeads(
-                        id,
-                        "lido"
-                    )
-                }
+            /*
+            Um upsert pode conter várias mensagens. Cada uma segue
+            independentemente para o CapLeads, evitando que uma chamada
+            lenta da IA segure as mensagens seguintes.
+            */
+            for (const msg of messages || []) {
+                void encaminharMensagemRecebida(msg)
             }
+
         }
     )
-
-    sock.ev.on(
-        "message-receipt.update",
-        async (updates) => {
-            for (const item of updates || []) {
-                const id = item?.key?.id
-                const receipt = item?.receipt
-
-                if (!id || !receipt) continue
-
-                if (receipt.readTimestamp) {
-                    await enviarReceiptCapLeads(
-                        id,
-                        "lido"
-                    )
-                } else if (
-                    receipt.receiptTimestamp ||
-                    receipt.deliveredTimestamp
-                ) {
-                    await enviarReceiptCapLeads(
-                        id,
-                        "entregue"
-                    )
-                }
-            }
-        }
-    )
-
-    return sessoes[empresa_id]
-}
-
-/*
-==========================================
-GARANTIR QUE A SESSÃO EXISTE
-==========================================
-*/
-
-async function garantirSessao(empresa_id) {
-
-    empresa_id = normalizarEmpresaId(empresa_id)
-
-    if (!empresa_id) {
-        throw new Error("empresa_id inválido")
-    }
-
-    let sessao = sessoes[empresa_id]
-
-    if (!sessao) {
-
-        console.log(
-            "⚙️ Criando sessão automaticamente:",
-            empresa_id
-        )
-
-        await iniciarSessao(empresa_id)
-        sessao = sessoes[empresa_id]
-    }
 
     /*
     Se o socket existe, mas fica sem conexão e sem QR por tempo demais,
