@@ -247,9 +247,10 @@ async function garantirSessao(empresa_id) {
 
 async function iniciarSessao(empresa_id) {
 
-    empresa_id = normalizarEmpresaId(empresa_id)
+    empresa_id = String(empresa_id || "").trim()
+    const mapa = /^mapa_[0-9]+$/.test(empresa_id)
 
-    if (!empresa_id) {
+    if (!mapa && !normalizarEmpresaId(empresa_id)) {
         throw new Error("empresa_id inválido")
     }
 
@@ -438,7 +439,7 @@ async function iniciarSessao(empresa_id) {
         const presence = data.presences[jid]
         if (!presence) return
 
-        if (presence.lastKnownPresence === "composing") {
+        if (!mapa && presence.lastKnownPresence === "composing") {
 
             const numero = jid.split("@")[0]
 
@@ -475,6 +476,7 @@ async function iniciarSessao(empresa_id) {
     */
 
     async function encaminharMensagemRecebida(msg) {
+        if (mapa) return // Mensagens do Mapa nao entram no CRM.
 
         if (!msg || !msg.key) return
 
@@ -673,6 +675,54 @@ async function iniciarSessao(empresa_id) {
 }
 
 /*
+ Sessao isolada do Motor Mapa.
+ Usa identificador interno exclusivo e pasta session_mapa_<tenant>,
+ sem alterar a sessao corporativa session_<tenant>.
+ Nao recebe mensagens no CRM e nao envia mensagens.
+*/
+function idSessaoMapa(empresa_id) {
+    const id = normalizarEmpresaId(empresa_id)
+    return id ? "mapa_" + id : null
+}
+
+app.post("/mapa/connect", async (req, res) => {
+    const token = process.env.CONNECTOR_LOOKUP_TOKEN || ""
+    if (!token || req.get("x-connector-lookup-token") !== token) {
+        return res.status(403).json({ ok: false, erro: "acesso negado" })
+    }
+    const id = idSessaoMapa(req.body?.empresa_id)
+    if (!id) return res.status(400).json({ ok: false, erro: "empresa invalida" })
+    try {
+        const sessao = await iniciarSessao(id)
+        return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr_disponivel: Boolean(sessao?.qr) })
+    } catch (erro) {
+        return res.status(503).json({ ok: false, erro: "falha ao iniciar sessao" })
+    }
+})
+
+app.get("/mapa/status", async (req, res) => {
+    const token = process.env.CONNECTOR_LOOKUP_TOKEN || ""
+    if (!token || req.get("x-connector-lookup-token") !== token) {
+        return res.status(403).json({ ok: false, erro: "acesso negado" })
+    }
+    const id = idSessaoMapa(req.query.empresa_id)
+    if (!id) return res.status(400).json({ ok: false, erro: "empresa invalida" })
+    const sessao = sessoes[id]
+    return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr_disponivel: Boolean(sessao?.qr) })
+})
+
+app.get("/mapa/qr", async (req, res) => {
+    const token = process.env.CONNECTOR_LOOKUP_TOKEN || ""
+    if (!token || req.get("x-connector-lookup-token") !== token) {
+        return res.status(403).json({ ok: false, erro: "acesso negado" })
+    }
+    const id = idSessaoMapa(req.query.empresa_id)
+    if (!id) return res.status(400).json({ ok: false, erro: "empresa invalida" })
+    const sessao = sessoes[id]
+    return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr: sessao?.qr || null })
+})
+
+/*
 ==========================================
 CONNECT
 ==========================================
@@ -833,7 +883,7 @@ app.post("/number-status", async (req, res) => {
         return res.status(400).json({ ok: false, erro: "numero invalido" })
     }
 
-    const sessao = sessoes[empresa_id]
+    const sessao = sessoes[idSessaoMapa(empresa_id)]
     if (!sessao?.conectado || typeof sessao.sock?.onWhatsApp !== "function") {
         return res.status(503).json({
             ok: false, situacao: "indisponivel",
@@ -1163,7 +1213,7 @@ function restaurarSessoes() {
             const empresa_id =
                 dir.replace("session_", "")
 
-            if (!normalizarEmpresaId(empresa_id)) {
+            if (!normalizarEmpresaId(empresa_id) && !/^mapa_[0-9]+$/.test(empresa_id)) {
                 return
             }
 
