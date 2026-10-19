@@ -476,7 +476,7 @@ async function iniciarSessao(empresa_id) {
     */
 
     async function encaminharMensagemRecebida(msg) {
-        if (mapa) return // Mensagens do Mapa nao entram no CRM.
+        // A sessão Mapa tem webhook exclusivo; nunca encaminhar ao CRM comum.
 
         if (!msg || !msg.key) return
 
@@ -546,16 +546,18 @@ async function iniciarSessao(empresa_id) {
         try {
 
             const resposta = await fetch(
-                CAPLEADS_BASE_URL + "/whatsapp/receive",
+                CAPLEADS_BASE_URL + (mapa ? "/api/central-cursos/mapa/campanhas/webhook/receber" : "/whatsapp/receive"),
                 {
                     method: "POST",
                     headers: {
-                        "Content-Type": "application/json"
+                        "Content-Type": "application/json",
+                        ...(mapa ? { "x-connector-lookup-token": process.env.CONNECTOR_LOOKUP_TOKEN || "" } : {})
                     },
                     body: JSON.stringify({
-                        empresa_id: Number(empresa_id),
+                        empresa_id: Number(mapa ? String(empresa_id).replace(/^mapa_/, "") : empresa_id),
                         numero,
                         mensagem: texto,
+                        ...(mapa ? { message_id: String(id || "") } : {}),
                         origem: "cliente",
                         nome_whatsapp:
                             String(msg.pushName || "").trim()
