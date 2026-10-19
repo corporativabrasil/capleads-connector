@@ -236,6 +236,15 @@ CRIAR SESSÃO WHATSAPP
 ==========================================
 */
 
+// Reutiliza a sessão ativa e inicializa apenas quando necessário.
+async function garantirSessao(empresa_id) {
+    empresa_id = normalizarEmpresaId(empresa_id)
+    if (!empresa_id) throw new Error("empresa_id inválido")
+    const existente = sessoes[empresa_id]
+    if (existente?.sock) return existente
+    return iniciarSessao(empresa_id)
+}
+
 async function iniciarSessao(empresa_id) {
 
     empresa_id = normalizarEmpresaId(empresa_id)
