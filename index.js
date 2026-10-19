@@ -722,6 +722,30 @@ app.get("/mapa/status", async (req, res) => {
     return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr_disponivel: Boolean(sessao?.qr), numero_conectado: numeroDaSessaoMapa(sessao), numero_confirmado: numeroDaSessaoMapa(sessao) === NUMERO_OFICIAL_MOTOR_MAPA })
 })
 
+app.post("/mapa/responder", async (req, res) => {
+    const token = process.env.CONNECTOR_LOOKUP_TOKEN || ""
+    if (!token || req.get("x-connector-lookup-token") !== token) {
+        return res.status(403).json({ ok: false, erro: "acesso negado" })
+    }
+    const id = idSessaoMapa(req.body?.empresa_id)
+    const numero = String(req.body?.numero || "").replace(/\D/g, "")
+    const mensagem = String(req.body?.mensagem || "").trim()
+    if (!id || !/^55\d{10,11}$/.test(numero) || !mensagem || mensagem.length > 2000) {
+        return res.status(400).json({ ok: false, erro: "dados invalidos" })
+    }
+    const sessao = sessoes[id]
+    if (!sessao?.conectado || !sessao?.sock || numeroDaSessaoMapa(sessao) !== NUMERO_OFICIAL_MOTOR_MAPA) {
+        return res.status(409).json({ ok: false, erro: "sessao exclusiva desconectada ou numero incorreto" })
+    }
+    try {
+        const enviado = await sessao.sock.sendMessage(numero + "@s.whatsapp.net", { text: mensagem })
+        return res.json({ ok: true, message_id: enviado?.key?.id || null })
+    } catch (e) {
+        console.log("Erro resposta manual Mapa:", e)
+        return res.status(502).json({ ok: false, erro: "falha no envio WhatsApp" })
+    }
+})
+
 app.get("/mapa/qr", async (req, res) => {
     const token = process.env.CONNECTOR_LOOKUP_TOKEN || ""
     if (!token || req.get("x-connector-lookup-token") !== token) {
