@@ -1213,7 +1213,7 @@ function restaurarSessoes() {
             const empresa_id =
                 dir.replace("session_", "")
 
-            if (!normalizarEmpresaId(empresa_id)) {
+            if (!normalizarEmpresaId(empresa_id) && !/^mapa_[0-9]+$/.test(empresa_id)) {
                 return
             }
 
