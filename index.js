@@ -247,9 +247,10 @@ async function garantirSessao(empresa_id) {
 
 async function iniciarSessao(empresa_id) {
 
-    empresa_id = normalizarEmpresaId(empresa_id)
+    empresa_id = String(empresa_id || "").trim()
+    const mapa = /^mapa_[0-9]+$/.test(empresa_id)
 
-    if (!empresa_id) {
+    if (!mapa && !normalizarEmpresaId(empresa_id)) {
         throw new Error("empresa_id inválido")
     }
 
@@ -438,7 +439,7 @@ async function iniciarSessao(empresa_id) {
         const presence = data.presences[jid]
         if (!presence) return
 
-        if (presence.lastKnownPresence === "composing") {
+        if (!mapa && presence.lastKnownPresence === "composing") {
 
             const numero = jid.split("@")[0]
 
@@ -475,6 +476,7 @@ async function iniciarSessao(empresa_id) {
     */
 
     async function encaminharMensagemRecebida(msg) {
+        if (mapa) return // Mensagens do Mapa nao entram no CRM.
 
         if (!msg || !msg.key) return
 
@@ -881,7 +883,7 @@ app.post("/number-status", async (req, res) => {
         return res.status(400).json({ ok: false, erro: "numero invalido" })
     }
 
-    const sessao = sessoes[empresa_id]
+    const sessao = sessoes[idSessaoMapa(empresa_id)]
     if (!sessao?.conectado || typeof sessao.sock?.onWhatsApp !== "function") {
         return res.status(503).json({
             ok: false, situacao: "indisponivel",
