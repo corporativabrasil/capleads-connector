@@ -694,7 +694,7 @@ app.post("/mapa/connect", async (req, res) => {
     if (!id) return res.status(400).json({ ok: false, erro: "empresa invalida" })
     try {
         const sessao = await iniciarSessao(id)
-        return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr_disponivel: Boolean(sessao?.qr) })
+        return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr_disponivel: Boolean(sessao?.qr), numero_conectado: sessao?.conectado ? String(sessao?.sock?.user?.id || "").split(":")[0].split("@")[0] || null : null })
     } catch (erro) {
         return res.status(503).json({ ok: false, erro: "falha ao iniciar sessao" })
     }
