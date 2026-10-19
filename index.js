@@ -802,6 +802,54 @@ ENVIAR MENSAGEM
 ==========================================
 */
 
+/*
+==========================================
+CONSULTA INDIVIDUAL DE NUMERO WHATSAPP
+Nao envia mensagens.
+Exige CONNECTOR_LOOKUP_TOKEN no ambiente do servidor.
+==========================================
+*/
+app.post("/number-status", async (req, res) => {
+    const token = process.env.CONNECTOR_LOOKUP_TOKEN || ""
+    const informado = String(req.get("x-connector-lookup-token") || "")
+    if (!token || informado !== token) {
+        return res.status(403).json({ ok: false, erro: "acesso negado" })
+    }
+
+    const empresa_id = normalizarEmpresaId(req.body?.empresa_id)
+    let numero = String(req.body?.numero || "").replace(/\D/g, "")
+    if (numero.length === 10 || numero.length === 11) numero = "55" + numero
+
+    if (!empresa_id || !/^55\d{10,11}$/.test(numero)) {
+        return res.status(400).json({ ok: false, erro: "numero invalido" })
+    }
+
+    const sessao = sessoes[empresa_id]
+    if (!sessao?.conectado || typeof sessao.sock?.onWhatsApp !== "function") {
+        return res.status(503).json({
+            ok: false, situacao: "indisponivel",
+            erro: "sessao WhatsApp nao conectada"
+        })
+    }
+
+    try {
+        const resultado = await sessao.sock.onWhatsApp(numero)
+        const registro = Array.isArray(resultado) ? resultado[0] : null
+        const situacao = registro?.exists === true
+            ? "verificado"
+            : registro?.exists === false
+                ? "nao_encontrado"
+                : "inconclusivo"
+
+        return res.json({ ok: true, numero, situacao })
+    } catch (erro) {
+        console.error("Falha na consulta de disponibilidade WhatsApp:", erro?.message)
+        return res.status(503).json({
+            ok: false, situacao: "indisponivel",
+            erro: "consulta indisponivel"
+        })
+    }
+})
 app.post("/send", async (req, res) => {
 
     const empresa_id =
