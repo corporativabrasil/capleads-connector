@@ -669,7 +669,7 @@ async function iniciarSessao(empresa_id) {
     que reconecta o socket preservando as credenciais quando apropriado.
     */
 
-    return sessao
+    return sessoes[empresa_id]
 }
 
 /*
