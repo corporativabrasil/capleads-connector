@@ -700,6 +700,15 @@ app.post("/mapa/connect", async (req, res) => {
     }
 })
 
+const NUMERO_OFICIAL_MOTOR_MAPA = "5511920501975"
+
+function numeroDaSessaoMapa(sessao) {
+    if (!sessao?.conectado) return null
+    const id = String(sessao?.sock?.user?.id || "")
+    const numero = id.split(":")[0].split("@")[0].replace(/\\D/g, "")
+    return numero || null
+}
+
 app.get("/mapa/status", async (req, res) => {
     const token = process.env.CONNECTOR_LOOKUP_TOKEN || ""
     if (!token || req.get("x-connector-lookup-token") !== token) {
@@ -708,7 +717,7 @@ app.get("/mapa/status", async (req, res) => {
     const id = idSessaoMapa(req.query.empresa_id)
     if (!id) return res.status(400).json({ ok: false, erro: "empresa invalida" })
     const sessao = sessoes[id]
-    return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr_disponivel: Boolean(sessao?.qr) })
+    return res.json({ ok: true, connected: Boolean(sessao?.conectado), qr_disponivel: Boolean(sessao?.qr), numero_conectado: numeroDaSessaoMapa(sessao), numero_confirmado: numeroDaSessaoMapa(sessao) === NUMERO_OFICIAL_MOTOR_MAPA })
 })
 
 app.get("/mapa/qr", async (req, res) => {
@@ -888,6 +897,15 @@ app.post("/number-status", async (req, res) => {
         return res.status(503).json({
             ok: false, situacao: "indisponivel",
             erro: "sessao WhatsApp nao conectada"
+        })
+    }
+
+    const numeroAtivo = numeroDaSessaoMapa(sessao)
+    if (numeroAtivo !== NUMERO_OFICIAL_MOTOR_MAPA) {
+        return res.status(409).json({
+            ok: false,
+            situacao: "bloqueado",
+            erro: "Número da sessão Motor Mapa não confirmado. Consulta bloqueada."
         })
     }
 
